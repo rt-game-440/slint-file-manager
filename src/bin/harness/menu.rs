@@ -75,6 +75,10 @@ pub fn context(size: (u32, u32), scale: f32) -> Res<(Vec<Value>, Vec<String>)> {
                 c.last_menu().is_some_and(|m| !m.intercept_open),
                 "文件不接管“打开”",
             ),
+            (
+                c.last_menu().is_some_and(|m| m.intercept_delete),
+                "选中项时接管“删除”（Issue #41）",
+            ),
             (w.get_focus_area() == "content", "焦点仍在内容区"),
         ],
     );
@@ -173,6 +177,10 @@ pub fn context(size: (u32, u32), scale: f32) -> Res<(Vec<Value>, Vec<String>)> {
                 c.last_menu()
                     .is_some_and(|m| m.target == Target::Background(photos.clone())),
                 "菜单作用于文件夹本身",
+            ),
+            (
+                c.last_menu().is_some_and(|m| !m.intercept_delete),
+                "空白处菜单不接管“删除”（没有删除项）",
             ),
             (c.ctl.selected_in(0).is_empty(), "空白处右键清空选择"),
         ],

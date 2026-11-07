@@ -605,5 +605,107 @@ pub fn delete(size: (u32, u32), scale: f32) -> Res<(Vec<Value>, Vec<String>)> {
             "临时回收站共收到 6 次回收（甲、丙、目录甲、戊、庚、孤）",
         )],
     );
+
+    // ---------- N. 右键菜单“删除”（Issue #41）：与 Delete 键同一套应用内确认 ----------
+    // 不弹系统菜单：用 simulate_menu_outcome 走与真实菜单相同的后续处理。
+    use slint_file_manager::shell_menu::Outcome;
+    let shell_delete = || Outcome::Intercepted {
+        verb: "delete".into(),
+    };
+    c.ctl.navigate_path(0, dir.clone());
+    c.pump();
+    for n in ["菜1.txt", "菜2.txt", "菜3.txt"] {
+        fs::write(dir.join(n), n)?;
+    }
+    c.click(&c.button("刷新")?);
+    c.pump();
+    let recycled = st.recycled_count();
+    select(c, &["菜1.txt"])?;
+    c.ctl.simulate_menu_outcome(0, shell_delete());
+    let menu_title = title(c);
+    let menu_body = body(c);
+    c.special(Key::Escape, &[]);
+    c.pump();
+    c.special(Key::Delete, &[]);
+    let key_title = title(c);
+    let key_body = body(c);
+    c.special(Key::Escape, &[]);
+    c.pump();
+    r.step(
+        c,
+        "N1 右键“删除”弹出应用内确认，与 Delete 键完全一致；取消后文件不变",
+        vec![
+            (
+                menu_title == "将“菜1.txt”移到回收站？",
+                "标题是移到回收站的确认",
+            ),
+            (
+                menu_title == key_title && menu_body == key_body,
+                "与 Delete 键的确认框一致",
+            ),
+            (!dlg(c), "Esc 取消后对话框关闭"),
+            (dir.join("菜1.txt").exists(), "取消后文件仍在"),
+            (st.recycled_count() == recycled, "没有任何东西被回收"),
+        ],
+    );
+    c.ctl.simulate_menu_outcome(0, shell_delete());
+    enter(c);
+    r.step(
+        c,
+        "N2 右键“删除”确认后移到（临时）回收站，不是永久删除",
+        vec![
+            (!dir.join("菜1.txt").exists(), "原位置已消失"),
+            (st.recycled_count() == recycled + 1, "进入回收站"),
+            (!has(c, 0, "菜1.txt"), "列表已刷新"),
+        ],
+    );
+    st.inject(dir.join("菜2.txt"), Inject::Unsupported);
+    select(c, &["菜2.txt"])?;
+    let (bin_before, rec_before) = (st.bin_len(), st.recycled_count());
+    c.ctl.simulate_menu_outcome(0, shell_delete());
+    r.step(
+        c,
+        "N3 不支持回收站的位置：右键“删除”只给说明，不退化为永久删除",
+        vec![
+            (
+                dlg(c) && title(c) == "无法移到回收站",
+                "应说明无法移到回收站",
+            ),
+            (
+                body(c).contains("没有删除任何项目"),
+                "应说明没有删除任何项目",
+            ),
+        ],
+    );
+    enter(c);
+    st.clear_injections();
+    r.step(
+        c,
+        "N4 文件与回收站都原样",
+        vec![
+            (dir.join("菜2.txt").exists(), "文件仍在"),
+            (
+                st.bin_len() == bin_before && st.recycled_count() == rec_before,
+                "回收站没有变化",
+            ),
+        ],
+    );
+    // 其他命令不被接管：copy 等已由外壳执行，应用内不弹任何确认
+    select(c, &["菜3.txt"])?;
+    c.ctl.simulate_menu_outcome(
+        0,
+        Outcome::Invoked {
+            label: "复制".into(),
+            verb: "copy".into(),
+        },
+    );
+    r.step(
+        c,
+        "N5 其他命令（copy）不弹删除确认",
+        vec![
+            (!dlg(c), "不应弹对话框"),
+            (dir.join("菜3.txt").exists(), "文件不变"),
+        ],
+    );
     Ok((r.steps, r.fails))
 }

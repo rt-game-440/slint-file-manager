@@ -94,6 +94,7 @@ pub struct MenuCall {
     pub pane: usize,
     pub target: shell_menu::Target,
     pub intercept_open: bool,
+    pub intercept_delete: bool,
 }
 
 /// 菜单占用的 GDI 对象达到此数量时提示重启（Windows 默认每进程上限 10000）。
@@ -1026,6 +1027,7 @@ impl Controller {
             return;
         }
         let paths = self.ws.borrow().active_tab(p).selected_paths();
+        let paths_empty = paths.is_empty();
         let single_dir = paths.len() == 1 && paths[0].is_dir();
         let target = if paths.is_empty() {
             shell_menu::Target::Background(loc.clone())
@@ -1037,6 +1039,7 @@ impl Controller {
                 pane: p,
                 target,
                 intercept_open: single_dir,
+                intercept_delete: !paths_empty,
             });
             return;
         }
@@ -1051,6 +1054,7 @@ impl Controller {
         #[allow(clippy::needless_update)]
         let mut options = shell_menu::Options {
             intercept_open: single_dir,
+            intercept_delete: !paths_empty,
             ..Default::default()
         };
         if let Some(hook) = self.menu_hook.borrow().as_ref() {
@@ -1104,6 +1108,11 @@ impl Controller {
                 };
                 self.set_message(&format!("“{name}”未能执行：{error}"));
             }
+            Outcome::Intercepted { verb } if verb.eq_ignore_ascii_case("delete") => {
+                // 等同按 Delete：应用内确认；不支持回收站时只给说明，不退化为永久删除（Issue #41）。
+                // 右键已把选择设为菜单目标，delete_selected 作用于该选择。
+                self.delete_selected(p, false);
+            }
             Outcome::Intercepted { .. } => {
                 if let shell_menu::Target::Items(v) = target
                     && let Some(dir) = v.first()
@@ -1153,6 +1162,27 @@ impl Controller {
     /// 测试挂钩：设置后每次弹出菜单前调用（可改选项）。
     pub fn set_menu_hook(&self, hook: Option<MenuHook>) {
         *self.menu_hook.borrow_mut() = hook;
+    }
+
+    /// 测试挂钩：假装菜单选中了某个命令，走与真实菜单相同的后续处理（不弹系统菜单、不调用外壳）。
+    pub fn simulate_menu_outcome(&self, p: usize, outcome: shell_menu::Outcome) {
+        let Some(loc) = self.location_in(p) else {
+            return;
+        };
+        let paths = self.ws.borrow().active_tab(p).selected_paths();
+        let target = if paths.is_empty() {
+            shell_menu::Target::Background(loc.clone())
+        } else {
+            shell_menu::Target::Items(paths)
+        };
+        let report = shell_menu::Report {
+            outcome,
+            stats: Default::default(),
+            build: Duration::ZERO,
+            track: Duration::ZERO,
+            nanazip: false,
+        };
+        self.after_menu(p, &loc, &target, &report);
     }
 
     /// 取走最近一次菜单的结果（`Err` 为未能弹出的原因）。
