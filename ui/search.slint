@@ -21,9 +21,9 @@ export component SearchBox inherits Rectangle {
         input.select-all();
     }
 
-    // 空间不足时让搜索框先收窄（最小 48px），不把整个窗口撑宽
+    // 空间不足时让搜索框先收窄，但保留图标与“搜索…”占位（约 7 个字宽），不把整个窗口撑宽（Issue #40）
     preferred-width: 240px * Theme.text-scale;
-    min-width: 48px;
+    min-width: 100px * Theme.text-scale;
     height: Theme.control-h;
     border-radius: Theme.control-h / 2;
     background: input.has-focus || root.active ? Theme.surface : #f0f1f4;
@@ -90,7 +90,7 @@ export component SearchBox inherits Rectangle {
             if root.text == "": Text {
                 x: 0px;
                 width: parent.width;
-                text: "搜索名称、扩展名或路径";
+                text: root.width < 190px * Theme.text-scale ? "搜索…" : "搜索名称、扩展名或路径";
                 color: Theme.text-disabled;
                 font-size: Theme.font;
                 vertical-alignment: center;
@@ -121,6 +121,116 @@ export component SearchBox inherits Rectangle {
             clear-ta := TouchArea {
                 clicked => {
                     root.escape();
+                }
+            }
+        }
+    }
+}
+
+// 工具栏的搜索范围入口（始终可见，空闲时也能选）：两段式，“当前目录”（含子目录）与“全盘”。
+// 无障碍标签带“范围：”前缀，与搜索面板里的同名范围按钮区分。
+export component ScopeSegment inherits Rectangle {
+    in property <bool> all;
+    // 工具栏空间不足（大文字缩放、窄窗口）时折叠为单个切换按钮，点击在两个范围间切换
+    in property <bool> compact;
+    callback set-scope(bool);
+
+    height: Theme.control-h;
+    width: root.compact ? 24px * Theme.text-scale + 22px : row.preferred-width + 2px;
+    border-radius: Theme.control-h / 2;
+    border-width: 1px;
+    border-color: root.compact && root.all ? Theme.accent-border : Theme.divider-strong;
+    background: root.compact ? (root.all ? Theme.accent-soft : compact-ta.has-hover ? Theme.hover : Theme.surface) : Theme.surface;
+    accessible-role: groupbox;
+    accessible-label: "搜索范围";
+    accessible-description: root.all ? "当前范围：全盘" : "当前范围：当前目录及子目录";
+    clip: true;
+
+    // 折叠态：单个切换按钮（范围名即文字），点击在两个范围间切换
+    scope-compact := Rectangle {
+        visible: root.compact;
+        accessible-role: button;
+        accessible-label: "搜索范围";
+        accessible-value: root.all ? "全盘" : "当前目录及子目录";
+        accessible-checkable: true;
+        accessible-checked: root.all;
+        accessible-action-default => {
+            root.set-scope(!root.all);
+        }
+
+        compact-text := Text {
+            text: root.all ? "全盘" : "目录";
+            color: root.all ? Theme.accent : Theme.text;
+            font-size: Theme.font-small;
+            font-weight: root.all ? 600 : 400;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        compact-ta := TouchArea {
+            enabled: root.compact;
+            clicked => {
+                root.set-scope(!root.all);
+            }
+        }
+    }
+
+    row := HorizontalLayout {
+        visible: !root.compact;
+        scope-seg-dir := Rectangle {
+            width: root.compact ? 0px : dir-text.preferred-width + 20px;
+            background: !root.all ? Theme.accent-soft : dir-ta.has-hover ? Theme.hover : transparent;
+            accessible-role: button;
+            accessible-label: "范围：当前目录及子目录";
+            accessible-checkable: true;
+            accessible-checked: !root.all;
+            accessible-action-default => {
+                root.set-scope(false);
+            }
+            animate background { duration: 90ms; }
+
+            dir-text := Text {
+                text: "当前目录";
+                color: !root.all ? Theme.accent : Theme.text;
+                font-size: Theme.font-small;
+                font-weight: !root.all ? 600 : 400;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            dir-ta := TouchArea {
+                enabled: !root.compact;
+                clicked => {
+                    root.set-scope(false);
+                }
+            }
+        }
+
+        scope-seg-all := Rectangle {
+            width: root.compact ? 0px : all-text.preferred-width + 20px;
+            background: root.all ? Theme.accent-soft : all-ta.has-hover ? Theme.hover : transparent;
+            accessible-role: button;
+            accessible-label: "范围：全盘";
+            accessible-checkable: true;
+            accessible-checked: root.all;
+            accessible-action-default => {
+                root.set-scope(true);
+            }
+            animate background { duration: 90ms; }
+
+            all-text := Text {
+                text: "全盘";
+                color: root.all ? Theme.accent : Theme.text;
+                font-size: Theme.font-small;
+                font-weight: root.all ? 600 : 400;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            all-ta := TouchArea {
+                enabled: !root.compact;
+                clicked => {
+                    root.set-scope(true);
                 }
             }
         }

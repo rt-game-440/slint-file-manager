@@ -356,7 +356,9 @@ fn restore_conflict(c: &Ctx) -> Res<()> {
 
 use crate::search::{
     setup_all_disks as search_all_disks, setup_cancelled as search_cancelled,
-    setup_denied as search_denied, setup_empty as search_empty, setup_no_disks as search_no_disks,
+    setup_denied as search_denied, setup_empty as search_empty,
+    setup_idle_scope_all as search_idle_scope_all,
+    setup_idle_scope_compact as search_idle_scope_compact, setup_no_disks as search_no_disks,
     setup_results as search_results, setup_scanning as search_scanning,
 };
 
@@ -654,6 +656,22 @@ pub const STATIC: &[Scenario] = &[
         "状态行“已取消：已显示 N 项，未扫描完，结果不完整”；“取消搜索”按钮消失；已出现的结果保留",
         search_cancelled,
     ),
+    s(
+        "search-idle-scope-all",
+        "未开始搜索：工具栏搜索框左侧的范围入口点选“全盘”",
+        "搜索框左侧始终有“当前目录｜全盘”两段式范围入口，“全盘”为淡蓝选中态；浏览面板照常显示，没有打开搜索面板",
+        search_idle_scope_all,
+    ),
+    Scenario {
+        name: "search-idle-text-scale-150",
+        content: "系统文字大小 150%、未开始搜索：范围入口折叠成单个切换按钮并点选为“全盘”",
+        expected: "工具栏不拥挤：双栏按钮只剩图标、永久删除按钮让位；范围入口显示为淡蓝的“全盘”单个按钮；搜索框保留放大镜与“搜索…”占位，不被挤成一小条，也不压住窗口控制按钮",
+        text_scale: 1.5,
+        load: true,
+        split: false,
+        thumb_cache: false,
+        setup: search_idle_scope_compact,
+    },
     Scenario {
         name: "search-results-text-scale-150",
         content: "系统文字大小 150% 下的搜索结果",

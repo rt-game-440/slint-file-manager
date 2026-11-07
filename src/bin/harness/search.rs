@@ -136,6 +136,20 @@ pub fn setup_no_disks(c: &Ctx) -> Res<()> {
     Ok(())
 }
 
+/// 空闲（未搜索）时在工具栏点“范围：全盘”：范围入口始终可见，全盘段为选中态。
+pub fn setup_idle_scope_all(c: &Ctx) -> Res<()> {
+    c.click(&c.button("范围：全盘")?);
+    c.advance(16);
+    Ok(())
+}
+
+/// 150% 文字缩放：范围入口折叠成单个切换按钮，点一下切到“全盘”；搜索框仍保留图标与占位文字。
+pub fn setup_idle_scope_compact(c: &Ctx) -> Res<()> {
+    c.click(&c.button("搜索范围")?);
+    c.advance(16);
+    Ok(())
+}
+
 pub fn setup_cancelled(c: &Ctx) -> Res<()> {
     start_search(c, "报告");
     c.ctl.search_pump(2);
@@ -623,6 +637,41 @@ fn scope_and_disks(r: &mut Rep, t: &Tree) -> Res<()> {
         "D4 没有可搜索的磁盘：显示“不可访问”而不是空结果",
         snap.phase == "unavailable" && snap.status_text.contains("没有识别到可用的磁盘"),
         format!("{} {}", snap.phase, snap.status_text),
+    );
+    c.special(Key::Escape, &[]);
+    // D5 空闲状态的范围入口（Issue #40）：未开始搜索时工具栏就有“当前目录／全盘”，点选只记录范围，不触发搜索
+    let snap = c.ctl.search_snapshot();
+    r.ok(
+        "D5a 关闭搜索后范围选择保留，面板已收起",
+        !snap.active && snap.scope_all,
+        format!("active={} all={}", snap.active, snap.scope_all),
+    );
+    c.click(&c.button("范围：当前目录及子目录")?);
+    let a = c.ctl.search_snapshot();
+    let dir_checked = c.button("范围：当前目录及子目录")?.accessible_checked();
+    c.click(&c.button("范围：全盘")?);
+    let b = c.ctl.search_snapshot();
+    let all_checked = c.button("范围：全盘")?.accessible_checked();
+    r.ok(
+        "D5b 空闲时点选“当前目录／全盘”：范围切换且勾选态同步，不开始搜索",
+        !a.active
+            && !a.scope_all
+            && dir_checked == Some(true)
+            && !b.active
+            && b.scope_all
+            && all_checked == Some(true),
+        format!(
+            "a={}/{} b={}/{} {:?} {:?}",
+            a.active, a.scope_all, b.active, b.scope_all, dir_checked, all_checked
+        ),
+    );
+    *g.roots.borrow_mut() = vec![t.root.clone()];
+    search_now(c, "report");
+    let snap = c.ctl.search_snapshot();
+    r.ok(
+        "D5c 空闲时选好的“全盘”在随后的搜索里生效",
+        snap.active && snap.scope_all && snap.scope_text.contains("全部磁盘"),
+        format!("{} {}", snap.active, snap.scope_text),
     );
     c.special(Key::Escape, &[]);
     Ok(())

@@ -825,6 +825,11 @@ impl Controller {
                 v.push(row("icloud-photos".into(), "iCloud 照片".into(), "cloud"));
             }
         }
+        // 回收站独立成组：与“此电脑”“云盘”之间有标题分隔，不再像磁盘的子项（Issue #40）
+        v.push(header("hdr-other", "其他"));
+        let mut bin = row("recycle-bin".into(), "回收站".into(), "trash");
+        bin.description = "已删除的项目，可还原".into();
+        v.push(bin);
         l.sidebar.set_vec(v);
     }
 
