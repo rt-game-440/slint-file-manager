@@ -1,12 +1,116 @@
-// 基线最小窗口：仅用于验证构建、启动与退出，不属于产品界面。
+// 基线窗口 + 调试观测框架的示例交互与示例动画（Issue #22）。
+// 标识约定见 docs/debug-harness.md：元素 id 用 kebab-case，可交互元素同时设置 accessible-label。
 export component MainWindow inherits Window {
     title: "Slint 文件管理器";
     preferred-width: 960px;
     preferred-height: 600px;
+    background: #f5f5f5;
+
+    // 示例状态（harness 通过这些属性读取状态）
+    in-out property <int> click-count: 0;
+    in-out property <bool> panel-open: false;
+    out property <bool> key-focused: demo-focus.has-focus;
+    out property <length> list-scroll-y: demo-list.content-y;
+    // 供 Rust 侧记录关键界面事件（动画开始、滚动）
+    callback demo-animation-toggled(bool);
+    callback demo-scrolled();
+
+    public function demo-toggle() {
+        root.panel-open = !root.panel-open;
+        root.click-count += 1;
+        root.demo-animation-toggled(root.panel-open);
+    }
 
     Text {
         text: "Slint 文件管理器（基线）";
+        color: #1a1a1a;
         horizontal-alignment: center;
         vertical-alignment: center;
+    }
+
+    demo-focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " ") {
+                root.demo-toggle();
+                return accept;
+            }
+            return reject;
+        }
+
+        // 示例交互：点击按钮或按空格切换面板
+        demo-toggle-button := Rectangle {
+            x: 24px;
+            y: 24px;
+            width: 180px;
+            height: 40px;
+            border-radius: 6px;
+            border-width: demo-focus.has-focus ? 2px : 0px;
+            border-color: #1b3f8f;
+            background: #2d6cdf;
+            accessible-role: button;
+            accessible-label: "切换示例面板";
+            accessible-checkable: true;
+            accessible-checked: root.panel-open;
+
+            Text {
+                text: "切换面板（" + root.click-count + "）";
+                color: white;
+            }
+
+            TouchArea {
+                clicked => {
+                    demo-focus.focus();
+                    root.demo-toggle();
+                }
+            }
+        }
+
+        // 示例动画：位置与透明度随 panel-open 变化
+        demo-panel := Rectangle {
+            y: 100px;
+            width: 200px;
+            height: 120px;
+            border-radius: 8px;
+            background: #e8a33d;
+            x: root.panel-open ? 400px : 24px;
+            opacity: root.panel-open ? 1.0 : 0.3;
+            accessible-role: groupbox;
+            accessible-label: "示例面板";
+            animate x {
+                duration: 400ms;
+                easing: ease-out-back;
+            }
+            animate opacity {
+                duration: 400ms;
+                easing: ease-in-out;
+            }
+        }
+
+        // 示例滚动：Flickable 内 10 行
+        demo-list := Flickable {
+            x: 24px;
+            y: 250px;
+            width: 200px;
+            height: 150px;
+            content-height: 300px;
+            changed content-y => {
+                root.demo-scrolled();
+            }
+            accessible-role: list;
+            accessible-label: "示例列表";
+
+            for i in 10: Rectangle {
+                y: i * 30px;
+                width: parent.width;
+                height: 30px;
+                background: mod(i, 2) == 0 ? #ffffff : #dde6f5;
+                accessible-role: list-item;
+                accessible-label: "示例行 " + i;
+                Text {
+                    text: "行 " + i;
+                    color: #1a1a1a;
+                }
+            }
+        }
     }
 }
