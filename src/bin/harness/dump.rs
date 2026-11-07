@@ -4,6 +4,7 @@ use crate::ctx::{Ctx, r3, root};
 use i_slint_backend_testing::ElementHandle;
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
+use std::path::Path;
 
 fn element(e: &ElementHandle) -> Value {
     let pos = e.absolute_position();
@@ -23,18 +24,47 @@ fn element(e: &ElementHandle) -> Value {
     })
 }
 
-/// 主窗口的浏览状态（Slint 生成的属性读取器 + 控制器）。元素级无法通用读取的状态（如焦点）通过这类属性导出。
-/// 路径只记录相对样例目录的部分，使不同机器上的记录可比较。
-pub fn extras(ctx: &Ctx) -> Value {
-    let w = &ctx.win;
+/// 路径只保留相对样例目录的部分，其余原样。
+pub fn rel_path(p: &Path) -> String {
     let root = crate::fixture::root();
-    let loc = ctx.ctl.location().map(|p| match p.strip_prefix(&root) {
+    match p.strip_prefix(&root) {
         Ok(rel) => format!("<样例目录>\\{}", rel.display())
             .trim_end_matches('\\')
             .to_string(),
         Err(_) => p.display().to_string(),
-    });
+    }
+}
+
+/// 一个面板的标签组与当前标签状态（来自工作区，与界面是否显示无关）。
+fn pane_state(ctx: &Ctx, p: usize) -> Value {
+    let ws = ctx.ctl.ws();
+    let pane = ws.pane(p);
     json!({
+        "visible": ws.is_visible(p),
+        "active_tab": pane.active_index(),
+        "tabs": pane.tabs().iter().map(|t| json!({
+            "location": t.location().map(rel_path),
+            "view": format!("{:?}", t.view()),
+            "sort": format!("{:?}", t.sort()),
+            "unavailable": t.is_unavailable(),
+            "can_back": t.can_back(),
+            "can_forward": t.can_forward(),
+        })).collect::<Vec<_>>(),
+        "selected": ctx.ctl.selected_in(p),
+        "item_count": pane.active_tab().rows().len(),
+    })
+}
+
+/// 主窗口的浏览状态（Slint 生成的属性读取器 + 控制器）。元素级无法通用读取的状态（如焦点）通过这类属性导出。
+/// 路径只记录相对样例目录的部分，使不同机器上的记录可比较。
+pub fn extras(ctx: &Ctx) -> Value {
+    let w = &ctx.win;
+    let loc = ctx.ctl.location().map(|p| rel_path(&p));
+    json!({
+        "active_pane": w.get_active_pane(),
+        "split": w.get_split(),
+        "focused_pane": w.get_focused_pane(),
+        "panes": [pane_state(ctx, 0), pane_state(ctx, 1)],
         "location": loc,
         "content_state": format!("{:?}", w.get_content_state()),
         "item_count": w.get_item_count(),
@@ -50,10 +80,21 @@ pub fn extras(ctx: &Ctx) -> Value {
         "can_forward": w.get_can_forward(),
         "can_up": w.get_can_up(),
         "status_text": w.get_status_text().to_string(),
-        "status_message": w.get_status_message().to_string(),
+        "status_message": mask_time(&w.get_status_message()),
         "pending_loads": ctx.ctl.pending(),
         "opened": ctx.opened.borrow().iter().map(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).collect::<Vec<_>>(),
     })
+}
+
+/// 备份文件名里的时间戳（`session.backup-yyyyMMdd-HHmmss-…`）每次不同，记录里替换成占位符，保证重复运行的记录一致。
+fn mask_time(s: &str) -> String {
+    const KEY: &str = "session.backup-";
+    match s.find(KEY) {
+        Some(i) if s.len() >= i + KEY.len() + 15 => {
+            format!("{}{}<时间>{}", &s[..i], KEY, &s[i + KEY.len() + 15..])
+        }
+        _ => s.to_string(),
+    }
 }
 
 /// 元素按深度优先先序平铺。`visible` 恒为 true：不可见元素不会被遍历到。

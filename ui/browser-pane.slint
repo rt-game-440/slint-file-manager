@@ -1,10 +1,10 @@
-// 浏览面板：标签带（本单只有一个浏览标签，标签管理见 Issue #6）、路径导航、内容区（网格／列表／状态）。
-// 面板状态全部由属性传入、事件以回调传出，便于双栏时实例化两份。
+// 浏览面板：标签带、路径导航、内容区（网格／列表／状态）。每个面板拥有独立的标签组（ADR 0002）。
+// 面板状态全部由属性传入、事件以回调传出（回调第一个参数是面板编号 0／1），主窗口实例化两份。
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { IconButton, TextButton } from "controls.slint";
 import { FileGrid, FileList } from "file-views.slint";
-import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb } from "types.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView } from "types.slint";
 
 component CrumbButton inherits Rectangle {
     in property <string> text;
@@ -325,132 +325,296 @@ component StatePanel inherits Rectangle {
     }
 }
 
+// 标签带中的一个标签：图标 + 标题 + 关闭按钮。
+// 活动面板的当前标签是白色表面 + 蓝色下划线；非活动面板的当前标签只是低对比灰面，两者一眼可辨。
+component TabChip inherits Rectangle {
+    in property <string> title;
+    in property <bool> current;
+    in property <bool> pane-active;
+    in property <bool> unavailable;
+    in property <bool> can-close;
+    callback clicked();
+    callback close();
+
+    border-radius: 8px;
+    background: root.current ? (root.pane-active ? Theme.surface : Theme.inactive-chip) : chip-ta.has-hover ? Theme.hover-soft : transparent;
+    drop-shadow-blur: root.current && root.pane-active ? 3px : 0px;
+    drop-shadow-offset-y: 1px;
+    drop-shadow-color: #0000000d;
+    accessible-role: tab;
+    accessible-label: "浏览标签 " + root.title;
+    accessible-description: root.unavailable ? "位置不可用" : "";
+    accessible-checkable: true;
+    accessible-checked: root.current;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    chip-ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+        pointer-event(e) => {
+            // 鼠标中键关闭，与浏览器一致
+            if (e.kind == PointerEventKind.up && e.button == PointerEventButton.middle && root.can-close) {
+                root.close();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 4px;
+        spacing: 6px;
+
+        Rectangle {
+            width: Theme.icon-s * 0.85;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                name: root.unavailable ? "warning" : "folder";
+                size: Theme.icon-s * 0.85;
+                tint: root.unavailable ? Theme.danger : (root.current && !root.pane-active) ? Theme.text-secondary : Theme.folder;
+                fill-color: root.unavailable ? transparent : (root.current && !root.pane-active) ? transparent : Theme.folder-fill;
+            }
+        }
+
+        Text {
+            text: root.title;
+            color: root.current ? (root.pane-active ? Theme.text : Theme.text-secondary) : Theme.text-secondary;
+            font-size: Theme.font;
+            font-weight: root.current ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        // 关闭按钮：当前标签或鼠标悬停时显示；面板只剩一个标签时不提供
+        close-slot := Rectangle {
+            width: root.can-close ? Theme.control-h * 0.72 : 6px;
+
+            Rectangle {
+                visible: root.can-close && (root.current || chip-ta.has-hover || close-ta.has-hover);
+                width: Theme.control-h * 0.62;
+                height: self.width;
+                border-radius: 5px;
+                background: close-ta.pressed ? Theme.pressed : close-ta.has-hover ? Theme.hover : transparent;
+                accessible-role: button;
+                accessible-label: "关闭标签 " + root.title;
+                accessible-action-default => {
+                    root.close();
+                }
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    name: "tab-close";
+                    size: Theme.icon-s * 0.7;
+                    line-width: 1.3px;
+                    tint: Theme.text-secondary;
+                }
+
+                close-ta := TouchArea {
+                    clicked => {
+                        root.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 标签带：等宽标签，放不下时缩到最小宽度并可用滚轮横向滚动，当前标签自动滚入视野；末尾是“新建标签”。
+component TabStrip inherits Rectangle {
+    in property <[TabInfo]> tabs;
+    in property <int> current-index;
+    in property <bool> pane-active;
+    callback tab-clicked(int);
+    callback tab-close(int);
+    callback tab-new();
+
+    property <length> gap: 4px;
+    property <length> pad-left: 12px;
+    property <length> plus-w: Theme.control-h + 4px;
+    property <length> avail: root.width - root.pad-left - 8px - root.plus-w - root.gap;
+    property <int> n: max(1, root.tabs.length);
+    property <length> min-w: 96px * Theme.text-scale;
+    property <length> max-w: 176px * Theme.text-scale;
+    property <length> chip-w: max(root.min-w, min(root.max-w, (root.avail + root.gap) / root.n - root.gap));
+    property <length> content-w: root.n * root.chip-w + (root.n - 1) * root.gap;
+    property <length> max-scroll: max(0px, root.content-w - root.avail);
+    property <length> clip-w: min(root.content-w, root.avail);
+    in-out property <length> scroll-x: 0px;
+    property <length> sx: min(root.max-scroll, max(0px, root.scroll-x));
+
+    function ensure-visible() {
+        let left = root.current-index * (root.chip-w + root.gap);
+        if (left < root.sx) {
+            root.scroll-x = left;
+        } else if (left + root.chip-w > root.sx + root.clip-w) {
+            root.scroll-x = left + root.chip-w - root.clip-w;
+        }
+    }
+
+    changed current-index => {
+        root.ensure-visible();
+    }
+    changed n => {
+        root.ensure-visible();
+    }
+    background: Theme.chrome-bg;
+    accessible-role: tab-list;
+    accessible-label: "标签带";
+
+    wheel := TouchArea {
+        scroll-event(e) => {
+            root.scroll-x = min(root.max-scroll, max(0px, root.sx - e.delta-y - e.delta-x));
+            accept
+        }
+    }
+
+    tab-clip := Rectangle {
+        x: root.pad-left;
+        y: 6px;
+        width: root.clip-w;
+        height: parent.height - 12px;
+        clip: true;
+
+        for t[i] in root.tabs: TabChip {
+            x: i * (root.chip-w + root.gap) - root.sx;
+            width: root.chip-w;
+            height: parent.height;
+            title: t.title;
+            current: t.current;
+            pane-active: root.pane-active;
+            unavailable: t.unavailable;
+            can-close: root.tabs.length > 1;
+            clicked => {
+                root.tab-clicked(i);
+            }
+            close => {
+                root.tab-close(i);
+            }
+        }
+    }
+
+    Rectangle {
+        x: tab-clip.x + tab-clip.width + root.gap;
+        y: (parent.height - self.height) / 2;
+        width: root.plus-w;
+        height: Theme.control-h;
+        IconButton {
+            icon: "plus";
+            label: "新建标签";
+            clicked => {
+                root.tab-new();
+            }
+        }
+    }
+}
+
 export component BrowserPane inherits Rectangle {
     // ---------- 状态（由 Rust 写入） ----------
+    in property <int> pane-id;
+    in property <string> pane-name;
+    in property <bool> pane-active;
+    in property <PaneView> v;
     in property <[FileItem]> items;
-    in property <int> cursor-index: -1;
-    in property <ContentState> state: ContentState.loading;
-    in property <string> error-detail;
-    in property <ViewMode> view: ViewMode.grid;
-    in property <SortKey> sort-key: SortKey.name;
-    in property <bool> sort-ascending: true;
-    in property <string> location-text;
-    in property <string> tab-title;
     in property <[Crumb]> crumbs;
-    in property <bool> can-back;
-    in property <bool> can-forward;
-    in property <bool> can-up;
+    in property <[TabInfo]> tabs;
     in-out property <bool> editing-address;
     out property <bool> content-focused: content.has-focus;
     out property <bool> address-focused: path-bar.input-focused;
 
-    // ---------- 事件 ----------
-    callback navigate-to(string);
-    callback go-back();
-    callback go-forward();
-    callback go-up();
-    callback refresh();
-    callback crumb-clicked(int);
-    callback item-pointer(int, bool, bool);
-    callback item-activate(int);
-    callback background-pointer(bool);
-    callback nav-key(NavKey, bool, bool, int, int);
-    callback select-all();
-    callback activate-selection();
-    callback toggle-cursor();
-    callback sort-clicked(SortKey);
-    callback open-location();
+    // ---------- 事件（第一个参数都是面板编号） ----------
+    callback navigate-to(int, string);
+    callback go-back(int);
+    callback go-forward(int);
+    callback go-up(int);
+    callback refresh(int);
+    callback crumb-clicked(int, int);
+    callback item-pointer(int, int, bool, bool);
+    callback item-activate(int, int);
+    callback background-pointer(int, bool);
+    callback nav-key(int, NavKey, bool, bool, int, int);
+    callback select-all(int);
+    callback activate-selection(int);
+    callback toggle-cursor(int);
+    callback set-sort(int, SortKey, bool);
+    callback open-location(int);
+    callback tab-clicked(int, int);
+    callback tab-close(int, int);
+    callback tab-new(int);
+    callback pane-activated(int);
 
+    // 把键盘焦点交给本面板的内容区（正在编辑地址时不抢焦点）
     public function focus-content() {
-        content.focus();
+        if (!root.editing-address) {
+            content.focus();
+        }
     }
 
     public function begin-edit-address() {
         root.editing-address = true;
     }
 
+    changed editing-address => {
+        if (root.editing-address) {
+            root.pane-activated(root.pane-id);
+        }
+    }
+
     forward-focus: content;
     background: Theme.content-bg;
+    accessible-role: groupbox;
+    accessible-label: root.pane-name;
+    accessible-description: root.pane-active ? "活动面板" : "";
 
     VerticalLayout {
-        // 标签带：保留 A2 的位置；当前只有一个浏览标签，新建／切换标签在 Issue #6 实现
-        Rectangle {
+        // 标签带：每个面板自己的标签组，位于本面板路径导航上方
+        tab-strip := TabStrip {
             height: Theme.tabstrip-h;
-            background: Theme.chrome-bg;
-
-            HorizontalLayout {
-                padding-left: 12px;
-                padding-top: 6px;
-                padding-bottom: 6px;
-                alignment: start;
-
-                tab-chip := Rectangle {
-                    border-radius: 8px;
-                    background: Theme.surface;
-                    drop-shadow-blur: 3px;
-                    drop-shadow-offset-y: 1px;
-                    drop-shadow-color: #0000000d;
-                    accessible-role: tab;
-                    accessible-label: "浏览标签 " + root.tab-title;
-
-                    HorizontalLayout {
-                        padding-left: 12px;
-                        padding-right: 14px;
-                        spacing: 6px;
-
-                        Rectangle {
-                            width: Theme.icon-s * 0.85;
-                            Icon {
-                                y: (parent.height - self.height) / 2;
-                                name: "folder";
-                                size: Theme.icon-s * 0.85;
-                                tint: Theme.folder;
-                                fill-color: Theme.folder-fill;
-                            }
-                        }
-
-                        Text {
-                            text: root.tab-title;
-                            color: Theme.text;
-                            font-size: Theme.font;
-                            font-weight: 600;
-                            vertical-alignment: center;
-                            overflow: elide;
-                            max-width: 220px * Theme.text-scale;
-                        }
-                    }
-                }
+            tabs: root.tabs;
+            current-index: root.v.tab-index;
+            pane-active: root.pane-active;
+            tab-clicked(i) => {
+                root.tab-clicked(root.pane-id, i);
+            }
+            tab-close(i) => {
+                root.tab-close(root.pane-id, i);
+            }
+            tab-new => {
+                root.tab-new(root.pane-id);
             }
         }
 
         path-bar := PathBar {
             height: Theme.pathbar-h;
             crumbs: root.crumbs;
-            location-text: root.location-text;
-            can-back: root.can-back;
-            can-forward: root.can-forward;
-            can-up: root.can-up;
-            can-refresh: root.location-text != "";
+            location-text: root.v.location-text;
+            can-back: root.v.can-back;
+            can-forward: root.v.can-forward;
+            can-up: root.v.can-up;
+            can-refresh: root.v.location-text != "";
             editing <=> root.editing-address;
             go-back => {
-                root.go-back();
+                root.go-back(root.pane-id);
             }
             go-forward => {
-                root.go-forward();
+                root.go-forward(root.pane-id);
             }
             go-up => {
-                root.go-up();
+                root.go-up(root.pane-id);
             }
             refresh => {
-                root.refresh();
+                root.refresh(root.pane-id);
             }
             crumb-clicked(i) => {
-                root.crumb-clicked(i);
+                root.crumb-clicked(root.pane-id, i);
             }
             submit(text) => {
                 root.editing-address = false;
                 content.focus();
-                root.navigate-to(text);
+                root.navigate-to(root.pane-id, text);
             }
             edit-finished => {
                 root.editing-address = false;
@@ -467,47 +631,48 @@ export component BrowserPane inherits Rectangle {
             vertical-stretch: 1;
             key-pressed(e) => {
                 if (e.text == Key.LeftArrow) {
-                    root.nav-key(NavKey.left, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                    root.nav-key(root.pane-id, NavKey.left, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
                     return accept;
                 }
                 if (e.text == Key.RightArrow) {
-                    root.nav-key(NavKey.right, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                    root.nav-key(root.pane-id, NavKey.right, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
                     return accept;
                 }
                 if (e.text == Key.UpArrow && !e.modifiers.alt) {
-                    root.nav-key(NavKey.up, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                    root.nav-key(root.pane-id, NavKey.up, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
                     return accept;
                 }
                 if (e.text == Key.DownArrow) {
-                    root.nav-key(NavKey.down, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                    root.nav-key(root.pane-id, NavKey.down, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
                     return accept;
                 }
                 if (e.text == Key.Home) {
-                    root.nav-key(NavKey.home, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                    root.nav-key(root.pane-id, NavKey.home, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
                     return accept;
                 }
                 if (e.text == Key.End) {
-                    root.nav-key(NavKey.end, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                    root.nav-key(root.pane-id, NavKey.end, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
                     return accept;
                 }
-                if (e.text == Key.PageUp) {
-                    root.nav-key(NavKey.page-up, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                // Ctrl+PageUp／PageDown 留给切换标签（浏览器习惯），不在这里处理
+                if (e.text == Key.PageUp && !e.modifiers.control) {
+                    root.nav-key(root.pane-id, NavKey.page-up, e.modifiers.shift, false, root.nav-cols(), root.nav-page());
                     return accept;
                 }
-                if (e.text == Key.PageDown) {
-                    root.nav-key(NavKey.page-down, e.modifiers.shift, e.modifiers.control, root.nav-cols(), root.nav-page());
+                if (e.text == Key.PageDown && !e.modifiers.control) {
+                    root.nav-key(root.pane-id, NavKey.page-down, e.modifiers.shift, false, root.nav-cols(), root.nav-page());
                     return accept;
                 }
                 if (e.text == Key.Return) {
-                    root.activate-selection();
+                    root.activate-selection(root.pane-id);
                     return accept;
                 }
                 if (e.modifiers.control && (e.text == "a" || e.text == "A")) {
-                    root.select-all();
+                    root.select-all(root.pane-id);
                     return accept;
                 }
                 if (e.modifiers.control && e.text == " ") {
-                    root.toggle-cursor();
+                    root.toggle-cursor(root.pane-id);
                     return accept;
                 }
                 reject
@@ -517,56 +682,56 @@ export component BrowserPane inherits Rectangle {
                 background: Theme.content-bg;
 
                 file-grid := FileGrid {
-                    visible: root.state == ContentState.ready && root.view == ViewMode.grid;
+                    visible: root.v.state == ContentState.ready && root.v.view == ViewMode.grid;
                     items: root.items;
-                    cursor-index: root.cursor-index;
+                    cursor-index: root.v.cursor-index;
                     pane-focused: content.has-focus;
                     item-pointer(i, ctrl, shift) => {
                         content.focus();
-                        root.item-pointer(i, ctrl, shift);
+                        root.item-pointer(root.pane-id, i, ctrl, shift);
                     }
                     item-activate(i) => {
-                        root.item-activate(i);
+                        root.item-activate(root.pane-id, i);
                     }
                     background-pointer(ctrl) => {
                         content.focus();
-                        root.background-pointer(ctrl);
+                        root.background-pointer(root.pane-id, ctrl);
                     }
                 }
 
                 file-list := FileList {
-                    visible: root.state == ContentState.ready && root.view == ViewMode.list;
+                    visible: root.v.state == ContentState.ready && root.v.view == ViewMode.list;
                     items: root.items;
-                    cursor-index: root.cursor-index;
+                    cursor-index: root.v.cursor-index;
                     pane-focused: content.has-focus;
-                    sort-key: root.sort-key;
-                    sort-ascending: root.sort-ascending;
+                    sort-key: root.v.sort-key;
+                    sort-ascending: root.v.sort-ascending;
                     item-pointer(i, ctrl, shift) => {
                         content.focus();
-                        root.item-pointer(i, ctrl, shift);
+                        root.item-pointer(root.pane-id, i, ctrl, shift);
                     }
                     item-activate(i) => {
-                        root.item-activate(i);
+                        root.item-activate(root.pane-id, i);
                     }
                     background-pointer(ctrl) => {
                         content.focus();
-                        root.background-pointer(ctrl);
+                        root.background-pointer(root.pane-id, ctrl);
                     }
                     sort-clicked(k) => {
-                        root.sort-clicked(k);
+                        root.set-sort(root.pane-id, k, k == root.v.sort-key ? !root.v.sort-ascending : true);
                     }
                 }
 
                 state-panel := StatePanel {
-                    visible: root.state != ContentState.ready && root.state != ContentState.loading;
-                    state: root.state;
-                    location-text: root.location-text;
-                    error-detail: root.error-detail;
+                    visible: root.v.state != ContentState.ready && root.v.state != ContentState.loading;
+                    state: root.v.state;
+                    location-text: root.v.location-text;
+                    error-detail: root.v.error-detail;
                     retry => {
-                        root.refresh();
+                        root.refresh(root.pane-id);
                     }
                     open-location => {
-                        root.open-location();
+                        root.open-location(root.pane-id);
                     }
                 }
 
@@ -577,7 +742,7 @@ export component BrowserPane inherits Rectangle {
                     accessible-label: "正在加载";
 
                     states [
-                        busy when root.state == ContentState.loading: {
+                        busy when root.v.state == ContentState.loading: {
                             opacity: 1;
                             in {
                                 animate opacity {
@@ -595,7 +760,7 @@ export component BrowserPane inherits Rectangle {
                         background: Theme.accent-soft;
                         clip: true;
 
-                        if root.state == ContentState.loading: Rectangle {
+                        if root.v.state == ContentState.loading: Rectangle {
                             width: parent.width * 0.3;
                             x: parent.width * 1.3 * mod(animation-tick() / 1ms, 1200) / 1200 - parent.width * 0.3;
                             height: 100%;
@@ -615,11 +780,20 @@ export component BrowserPane inherits Rectangle {
         }
     }
 
+    // 活动面板标记：面板顶边 2px 蓝线（仅活动面板存在该元素，harness 据此检查）
+    if root.pane-active: active-bar := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 2px;
+        background: Theme.accent;
+    }
+
     pure function nav-cols() -> int {
-        return root.view == ViewMode.grid ? file-grid.cols : 1;
+        return root.v.view == ViewMode.grid ? file-grid.cols : 1;
     }
 
     pure function nav-page() -> int {
-        return root.view == ViewMode.grid ? file-grid.page-rows : file-list.page-rows;
+        return root.v.view == ViewMode.grid ? file-grid.page-rows : file-list.page-rows;
     }
 }

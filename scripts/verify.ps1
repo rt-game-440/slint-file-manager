@@ -21,3 +21,5 @@ if (-not $p.WaitForExit(15000)) { $p.Kill(); Write-Error '冒烟超时，进程�
 if ($p.ExitCode -ne 0) { Write-Error "冒烟退出码 $($p.ExitCode)"; exit 1 }
 $os = (Get-CimInstance Win32_OperatingSystem)
 Write-Host "冒烟通过：$($os.Caption) build $($os.BuildNumber)"
+
+Step '会话恢复（真实程序，临时数据目录）' { & (Join-Path $PSScriptRoot 'verify-session.ps1') }

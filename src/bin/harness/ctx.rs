@@ -7,6 +7,7 @@ use i_slint_backend_testing::{
 use slint::ComponentHandle;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint_file_manager::app::{self, Controller, Env, Loader, Opener};
+use slint_file_manager::browse::session::SessionStore;
 use slint_file_manager::{MainWindow, Theme};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -110,11 +111,15 @@ pub struct Ctx {
     t0: u64,
 }
 
-/// 窗口选项：起始目录、文字缩放、是否立即完成首次加载。
+/// 窗口选项：起始目录、文字缩放、是否立即完成首次加载、双栏与会话目录。
 pub struct Opts {
     pub start: PathBuf,
     pub text_scale: f32,
     pub load: bool,
+    /// 没有可恢复会话时是否双栏（默认单栏，保持旧场景与基线的构图；双栏场景显式打开）
+    pub split: bool,
+    /// 会话保存目录；`None` 表示不恢复也不保存（绝不使用用户真实目录，见 fixture::session_dir）
+    pub session: Option<PathBuf>,
 }
 
 impl Default for Opts {
@@ -123,6 +128,8 @@ impl Default for Opts {
             start: crate::fixture::root(),
             text_scale: 1.0,
             load: true,
+            split: false,
+            session: None,
         }
     }
 }
@@ -145,10 +152,17 @@ impl Ctx {
         let ctl = app::wire(
             &win,
             Env {
-                start: Some(o.start),
+                // 带会话时不传起始目录（等同没有 --open 参数），否则会被当作“打开目录请求”改变恢复出的标签
+                start: if o.session.is_some() {
+                    None
+                } else {
+                    Some(o.start)
+                },
                 home: Some(crate::fixture::root()),
                 loader: Loader::Manual(RefCell::new(VecDeque::new())),
                 opener: Opener::Record(opened.clone()),
+                store: o.session.map(SessionStore::at),
+                fresh_split: o.split,
             },
         );
         win.show()?;
@@ -166,6 +180,7 @@ impl Ctx {
             size: slint::LogicalSize::new(size.0 as f32, size.1 as f32),
         });
         mock_elapsed_time(Duration::from_millis(1));
+        ctl.focus_active();
         let c = Ctx {
             win,
             ctl,

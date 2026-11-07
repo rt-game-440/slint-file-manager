@@ -1,26 +1,29 @@
 //! 把浏览上下文的条目暴露为 Slint 模型。按需生成显示文字：大目录只为可见行格式化，
 //! 不在界面线程为全部条目构造 `FileItem`。
 
-use crate::browse::{Tab, format};
+use crate::browse::{Workspace, format};
 use crate::{FileItem, browse::tab::Row};
 use slint::{Model, ModelNotify, ModelTracker};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// 一个浏览面板当前标签的条目。切换标签时调用 [`ItemsModel::reset`]，模型随即指向新标签的行。
 pub struct ItemsModel {
-    tab: Rc<RefCell<Tab>>,
+    ws: Rc<RefCell<Workspace>>,
+    pane: usize,
     notify: ModelNotify,
 }
 
 impl ItemsModel {
-    pub fn new(tab: Rc<RefCell<Tab>>) -> ItemsModel {
+    pub fn new(ws: Rc<RefCell<Workspace>>, pane: usize) -> ItemsModel {
         ItemsModel {
-            tab,
+            ws,
+            pane,
             notify: ModelNotify::default(),
         }
     }
 
-    /// 条目整体变化（换目录、排序）。
+    /// 条目整体变化（换目录、排序、切换标签）。
     pub fn reset(&self) {
         self.notify.reset();
     }
@@ -52,11 +55,16 @@ impl Model for ItemsModel {
     type Data = FileItem;
 
     fn row_count(&self) -> usize {
-        self.tab.borrow().rows().len()
+        self.ws.borrow().active_tab(self.pane).rows().len()
     }
 
     fn row_data(&self, row: usize) -> Option<FileItem> {
-        self.tab.borrow().rows().get(row).map(to_item)
+        self.ws
+            .borrow()
+            .active_tab(self.pane)
+            .rows()
+            .get(row)
+            .map(to_item)
     }
 
     fn model_tracker(&self) -> &dyn ModelTracker {

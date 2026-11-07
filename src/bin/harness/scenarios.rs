@@ -17,6 +17,8 @@ pub struct Scenario {
     pub text_scale: f32,
     /// 是否完成首次目录读取（false 时停在“加载中”）
     pub load: bool,
+    /// 是否双栏（旧场景保持单栏，构图与基线可比）
+    pub split: bool,
     pub setup: fn(&Ctx) -> Res<()>,
 }
 
@@ -25,21 +27,30 @@ pub const TRACKED: &[(&str, &str)] = &[("loading", "BrowserPane::loading-indicat
 
 impl Ctx {
     /// 按无障碍角色与标签查找唯一元素（Text 会以自身文字作为标签，需按角色区分）。
+    /// 双栏时两个面板里会有同名元素（后退、地址栏、同名文件……），此时只在活动面板内查找；
+    /// 要指定面板用 [`Ctx::find_in`]。
     pub fn find(&self, role: AccessibleRole, label: &str) -> Res<ElementHandle> {
-        let v: Vec<_> = self
-            .win
+        let mut v = self.find_all(role, label);
+        match v.len() {
+            1 => Ok(v.remove(0)),
+            0 => Err(format!("找不到 {role:?}：{label}").into()),
+            _ => {
+                let p = self.ctl.ws().active_pane();
+                self.find_in(p, role, label)
+            }
+        }
+    }
+
+    /// 全部同角色同标签的可见元素。
+    pub fn find_all(&self, role: AccessibleRole, label: &str) -> Vec<ElementHandle> {
+        self.win
             .root_element()
             .query_descendants()
             .match_accessible_role(role)
             .find_all()
             .into_iter()
             .filter(|e| e.accessible_label().is_some_and(|l| l == label))
-            .collect();
-        match v.len() {
-            1 => Ok(v.into_iter().next().unwrap()),
-            0 => Err(format!("找不到 {role:?}：{label}").into()),
-            n => Err(format!("{role:?}：{label} 不唯一（{n} 个）").into()),
-        }
+            .collect()
     }
 
     pub fn button(&self, label: &str) -> Res<ElementHandle> {
@@ -51,9 +62,9 @@ impl Ctx {
         self.find(AccessibleRole::ListItem, name)
     }
 
-    /// 点击地址栏进入编辑，输入文字并回车。
+    /// 进入地址编辑（对活动面板的地址栏触发默认操作，窄面板里路径分段占满地址栏时也可靠），输入文字并回车。
     pub fn enter_address(&self, text: &str) -> Res<()> {
-        self.click_right_edge(&self.button("地址栏")?, 12.0);
+        self.button("地址栏")?.invoke_accessible_default_action();
         self.type_text(text);
         self.special(Key::Return, &[]);
         Ok(())
@@ -143,6 +154,59 @@ fn list_text_scale(c: &Ctx) -> Res<()> {
     Ok(())
 }
 
+// ---------- 双栏与标签（Issue #6） ----------
+
+fn dual_default(c: &Ctx) -> Res<()> {
+    c.click(&c.item("说明.md")?);
+    Ok(())
+}
+
+fn abs(p: std::path::PathBuf) -> String {
+    p.to_string_lossy().to_string()
+}
+
+/// 左面板 3 个标签（当前为“照片”），右面板 2 个标签并活动（当前为样例目录，选中程序.exe）。
+fn dual_tabs(c: &Ctx) -> Res<()> {
+    c.click(&c.item_in(0, "图片001.webp")?);
+    c.ctrl("t");
+    c.enter_address(&abs(fixture::path(fixture::PHOTOS)))?;
+    c.pump();
+    c.ctrl("t");
+    c.enter_address(&abs(fixture::path(fixture::EMPTY)))?;
+    c.pump();
+    c.ctrl("2");
+    c.click(&c.item_in(1, "报告2.txt")?);
+    c.ctrl("t");
+    c.enter_address(&abs(fixture::deep_path(fixture::DEEP.len())))?;
+    c.pump();
+    c.ctrl("1");
+    c.click(&c.item_in(1, "程序.exe")?);
+    Ok(())
+}
+
+/// 右面板的第二个标签指向不存在的位置：标签保留并带警告图标。
+fn dual_unavailable(c: &Ctx) -> Res<()> {
+    c.click(&c.item_in(1, "说明.md")?);
+    c.ctrl("t");
+    c.enter_address(&abs(fixture::path("不存在的文件夹")))?;
+    c.pump();
+    Ok(())
+}
+
+/// 切到单栏后只显示右面板（左面板在内存中保留）。
+fn dual_default_right(c: &Ctx) -> Res<()> {
+    c.click(&c.item_in(1, "空文件夹")?);
+    Ok(())
+}
+
+fn single_right(c: &Ctx) -> Res<()> {
+    c.click(&c.item_in(1, "说明.md")?);
+    c.ctrl("t");
+    c.click(&c.button("双栏")?);
+    c.pump();
+    Ok(())
+}
+
 const fn s(
     name: &'static str,
     content: &'static str,
@@ -155,6 +219,7 @@ const fn s(
         expected,
         text_scale: 1.0,
         load: true,
+        split: false,
         setup,
     }
 }
@@ -163,7 +228,7 @@ pub const STATIC: &[Scenario] = &[
     s(
         "grid-selected",
         "样例目录网格视图，单击选中“图片003.webp”",
-        "A2 布局：浅灰侧栏、融合顶栏（排序／视图／双栏／搜索，右上角窗口按钮）、近白内容区；文件夹在前、名称自然排序（报告2 在 报告10 前）；选中项为浅蓝圆角底与蓝色描边；状态栏显示“26 个项目　已选择 1 个项目（…）”",
+        "A2 布局：浅灰侧栏、融合顶栏（排序／视图／双栏／搜索，右上角窗口按钮）、面板顶部标签带（一个标签“样例目录”和“+”，单栏只显示一个面板）、近白内容区；文件夹在前、名称自然排序（报告2 在 报告10 前）；选中项为浅蓝圆角底与蓝色描边；状态栏显示“26 个项目　已选择 1 个项目（…）”",
         grid_selected,
     ),
     s(
@@ -208,6 +273,7 @@ pub const STATIC: &[Scenario] = &[
         expected: "内容区顶部 2px 蓝色进度条与居中“正在加载…”；状态栏“正在读取…”；工具栏与路径栏可见但内容区无文件",
         text_scale: 1.0,
         load: false,
+        split: false,
         setup: loading,
     },
     s(
@@ -234,6 +300,7 @@ pub const STATIC: &[Scenario] = &[
         expected: "文字、行高、侧栏宽度、工具栏随之放大，没有文字被裁切到不可读；图标最多放大到 1.5 倍；长名折行后省略",
         text_scale: 1.5,
         load: true,
+        split: false,
         setup: text_scale,
     },
     Scenario {
@@ -242,7 +309,53 @@ pub const STATIC: &[Scenario] = &[
         expected: "列表行高与表头随文字放大；名称列省略号截断，日期／类型／大小列完整可读",
         text_scale: 1.5,
         load: true,
+        split: false,
         setup: list_text_scale,
+    },
+    Scenario {
+        name: "dual-default",
+        content: "首次运行的默认双栏：两个面板都在样例目录，左面板单击选中说明.md",
+        expected: "两个面板等宽，中间 1px 分隔线；每个面板顶部各有自己的标签带（一个标签）、路径导航与内容；活动面板（左）顶边有 2px 蓝线、标签为白底，另一面板标签为灰底；右面板无选中项；状态栏只统计活动面板",
+        text_scale: 1.0,
+        load: true,
+        split: true,
+        setup: dual_default,
+    },
+    Scenario {
+        name: "dual-tabs",
+        content: "左面板 3 个标签（当前“照片”），右面板 2 个标签并为活动面板（当前样例目录，选中程序.exe）",
+        expected: "各面板标签带独立：左 3 个、右 2 个，当前标签白底（活动面板）或灰底（非活动面板）；右面板顶边蓝线；左面板内容为照片 12 项，右面板为样例目录；标签带末尾有“+”；标签宽度在窄面板内等分且标题省略",
+        text_scale: 1.0,
+        load: true,
+        split: true,
+        setup: dual_tabs,
+    },
+    Scenario {
+        name: "dual-unavailable-tab",
+        content: "右面板新建标签并输入不存在的路径",
+        expected: "右面板第二个标签保留并显示警告图标；内容区显示“找不到这个位置”与重试按钮；左面板不受影响",
+        text_scale: 1.0,
+        load: true,
+        split: true,
+        setup: dual_unavailable,
+    },
+    Scenario {
+        name: "single-right",
+        content: "双栏下激活右面板、新建标签后切到单栏",
+        expected: "只显示右面板并占满内容区，保留其 2 个标签；“双栏”按钮不再是蓝色选中态；左面板的状态没有丢（由交互脚本断言）",
+        text_scale: 1.0,
+        load: true,
+        split: true,
+        setup: single_right,
+    },
+    Scenario {
+        name: "dual-text-scale-150",
+        content: "系统文字大小 150% 下的双栏与标签带，右面板活动",
+        expected: "标签带、路径导航随文字放大且不被裁切；两个面板仍等宽；窄面板中路径导航以“…”收起；活动面板蓝线可见",
+        text_scale: 1.5,
+        load: true,
+        split: true,
+        setup: dual_default_right,
     },
 ];
 
@@ -300,6 +413,7 @@ pub fn open(name: &str, size: (u32, u32), scale: f32) -> Res<Ctx> {
         Opts {
             text_scale: sc.text_scale,
             load: sc.load,
+            split: sc.split,
             ..Opts::default()
         },
     )?;

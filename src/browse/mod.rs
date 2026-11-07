@@ -5,9 +5,12 @@ pub mod entry;
 pub mod format;
 pub mod history;
 pub mod location;
+pub mod session;
 pub mod sort;
 pub mod tab;
+pub mod workspace;
 
 pub use entry::{Entry, ListError, ListErrorKind, list_dir};
 pub use sort::{SortKey, SortSpec};
-pub use tab::{Activation, LoadRequest, LoadState, Loaded, Nav, Tab, ViewMode};
+pub use tab::{Activation, LoadRequest, LoadState, Loaded, Nav, Tab, TabId, TabSeed, ViewMode};
+pub use workspace::{Job, Workspace};

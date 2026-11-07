@@ -25,3 +25,28 @@ export struct FileItem {
 export struct Crumb {
     label: string,
 }
+
+// 标签带中的一个浏览标签。
+export struct TabInfo {
+    title: string,
+    // 是否为所在面板当前显示的标签
+    current: bool,
+    // 位置读取失败（磁盘未连接、路径已删除、无权限等）：标签保留，用警示图标标出
+    unavailable: bool,
+}
+
+// 一个浏览面板当前标签的显示状态（Rust 写入）。条目、路径分段与标签列表另用模型传入。
+export struct PaneView {
+    tab-index: int,
+    tab-count: int,
+    state: ContentState,
+    error-detail: string,
+    view: ViewMode,
+    sort-key: SortKey,
+    sort-ascending: bool,
+    location-text: string,
+    cursor-index: int,
+    can-back: bool,
+    can-forward: bool,
+    can-up: bool,
+}
