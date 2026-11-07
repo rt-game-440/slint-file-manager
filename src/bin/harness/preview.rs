@@ -256,7 +256,7 @@ pub fn check_appear(sum: &Value) -> Result<(), String> {
 
 // ---------- 交互脚本：预览 ----------
 
-fn png_bytes(w: u32, h: u32, seed: u8) -> Vec<u8> {
+pub(crate) fn png_bytes(w: u32, h: u32, seed: u8) -> Vec<u8> {
     samples::png(&samples::pattern(w, h, seed))
 }
 

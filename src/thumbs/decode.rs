@@ -12,12 +12,7 @@
 use super::webp;
 use super::{Fail, Source, THUMB_SIZE, Thumb, mtime_ns};
 use std::io::Cursor;
-use std::os::windows::fs::MetadataExt;
 use std::sync::{Condvar, Mutex};
-
-const FILE_ATTRIBUTE_OFFLINE: u32 = 0x1000;
-const FILE_ATTRIBUTE_RECALL_ON_OPEN: u32 = 0x0004_0000;
-const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS: u32 = 0x0040_0000;
 
 /// 同时进行的大图整幅解码数。
 pub const HEAVY_SLOTS: usize = 1;
@@ -52,28 +47,24 @@ pub struct Generated {
 
 /// 带云端占位属性（脱机／打开时召回／访问数据时召回）：读取内容会触发同步客户端下载。
 pub fn is_cloud_placeholder(attrs: u32) -> bool {
-    attrs
-        & (FILE_ATTRIBUTE_OFFLINE
-            | FILE_ATTRIBUTE_RECALL_ON_OPEN
-            | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
-        != 0
+    crate::cloud::is_recall(attrs)
 }
 
 /// 读取并生成缩略图。
 pub fn generate(src: &Source, lim: &Limits) -> Result<Generated, Fail> {
-    let meta = std::fs::metadata(&src.path).map_err(|_| Fail::Io)?;
-    if is_cloud_placeholder(meta.file_attributes()) {
-        // 云端占位：读取内容会触发同步客户端下载原文件（ADR 0004），本应用不读
-        return Err(Fail::Cloud);
-    }
-    if !meta.is_file() {
-        return Err(Fail::Unsupported);
-    }
+    // 云端占位：读取内容会触发同步客户端下载原文件（ADR 0004），本应用不读。
+    // 守卫先查属性再打开、打开后在句柄上再查一次（文件在目录枚举之后被“释放空间”的竞态）。
+    let (mut file, meta) = crate::cloud::open_local_only(&src.path).map_err(|g| match g {
+        crate::cloud::Guard::Cloud => Fail::Cloud,
+        crate::cloud::Guard::NotFile => Fail::Unsupported,
+        crate::cloud::Guard::Io => Fail::Io,
+    })?;
     if meta.len() > lim.max_file_bytes {
         return Err(Fail::TooLarge);
     }
     let identity_ok = meta.len() == src.size && mtime_ns(meta.modified().ok()) == src.mtime_ns;
-    let bytes = std::fs::read(&src.path).map_err(|_| Fail::Io)?;
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|_| Fail::Io)?;
     let thumb = from_bytes(&bytes, lim)?;
     Ok(Generated { thumb, identity_ok })
 }

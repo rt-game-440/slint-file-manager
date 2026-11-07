@@ -146,6 +146,10 @@ pub trait Backend: Send + Sync {
     fn transfer(&self, src: &Path, dest: &Path, mode: crate::xfer::Mode) -> OpResult {
         crate::xfer::fs_transfer(src, dest, mode, &crate::xfer::FsOpts::default())
     }
+    /// 云文件 API（目录枚举时判定云盘状态，Issue #14）：产品用系统实现，harness 注入模拟提供方。
+    fn cloud(&self) -> &dyn crate::cloud::CloudProbe {
+        &crate::cloud::SYSTEM
+    }
     /// 新建文件夹；已存在则失败。
     fn create_dir(&self, path: &Path) -> OpResult {
         crate::xfer::fs_create_dir(path)
@@ -476,6 +480,8 @@ struct StashState {
 pub struct StashBackend {
     stash: PathBuf,
     state: Mutex<StashState>,
+    /// 模拟的云文件 API（默认没有任何同步根，测试按需登记），不触碰系统云盘。
+    cloud: crate::cloud::MockCloud,
 }
 
 impl StashBackend {
@@ -485,7 +491,13 @@ impl StashBackend {
         Arc::new(StashBackend {
             stash,
             state: Mutex::new(StashState::default()),
+            cloud: crate::cloud::MockCloud::default(),
         })
+    }
+
+    /// 模拟提供方：登记同步根、占位信息与提供方状态（Issue #14）。
+    pub fn cloud_mock(&self) -> &crate::cloud::MockCloud {
+        &self.cloud
     }
 
     /// 让后续对 `path` 的操作按 `inject` 失败。
@@ -521,6 +533,10 @@ impl StashBackend {
 }
 
 impl Backend for StashBackend {
+    fn cloud(&self) -> &dyn crate::cloud::CloudProbe {
+        &self.cloud
+    }
+
     fn recycle(&self, path: &Path) -> OpResult {
         let mut st = self.state.lock().unwrap();
         match st.inject.get(path) {

@@ -3,7 +3,7 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
-import { FileItem, SortKey, ThumbState, DragPhase, RenameBus } from "types.slint";
+import { FileItem, SortKey, ThumbState, DragPhase, RenameBus, CloudBadge, CloudText } from "types.slint";
 
 // 重命名输入框：Enter 确定、Esc 取消、失去焦点确定（与资源管理器一致）。
 // 文本与选中范围通过 RenameBus 与 Rust 交换；原因非空时为红色边框。
@@ -58,6 +58,30 @@ component NameEditor inherits Rectangle {
     }
 }
 
+// 云盘状态小标记（Issue #14）：仅在线 = 蓝色云；客户端不可用 = 琥珀色斜线云；本地可用 = 绿色圈内对勾；始终保留 = 绿色实心圈内白色对勾。
+// 标记不参与无障碍树，状态文字由所在条目的 accessible-description 表达。
+component CloudMark inherits Rectangle {
+    in property <CloudBadge> state;
+    in property <length> size: 16px;
+    visible: root.state != CloudBadge.none;
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    background: root.state == CloudBadge.pinned ? Theme.cloud-ok : Theme.surface;
+    border-width: 1px;
+    border-color: root.state == CloudBadge.unavailable ? Theme.warning : root.state == CloudBadge.online ? Theme.accent : Theme.cloud-ok;
+    accessible-role: none;
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        name: root.state == CloudBadge.online ? "cloud" : root.state == CloudBadge.unavailable ? "cloud-off" : "check";
+        size: root.size * (root.state == CloudBadge.online || root.state == CloudBadge.unavailable ? 0.72 : 0.62);
+        line-width: 1.6px;
+        tint: root.state == CloudBadge.pinned ? Theme.surface : root.state == CloudBadge.unavailable ? Theme.warning : root.state == CloudBadge.online ? Theme.accent : Theme.cloud-ok;
+    }
+}
+
 // 网格中缩略图格位的高度（不含文件名）。A2：图片本身是主体，格位比类型图标大；图标仍按 56px 显示。
 export global GridMetrics {
     out property <length> thumb-h: 84px * min(Theme.text-scale, 1.5);
@@ -93,7 +117,7 @@ component GridCell inherits Rectangle {
     accessible-item-selected: root.item.selected;
     accessible-item-index: root.index;
     // 缩略图状态供无头测试读取（harness 按描述断言）
-    accessible-description: root.item.thumb-state == ThumbState.loading ? "缩略图加载中" : root.item.thumb-state == ThumbState.ready ? "缩略图已显示" : root.item.thumb-state == ThumbState.failed ? "无法生成缩略图" : root.item.thumb-state == ThumbState.timeout ? "缩略图超时" : "";
+    accessible-description: (root.item.thumb-state == ThumbState.loading ? "缩略图加载中" : root.item.thumb-state == ThumbState.ready ? "缩略图已显示" : root.item.thumb-state == ThumbState.failed ? "无法生成缩略图" : root.item.thumb-state == ThumbState.timeout ? "缩略图超时" : "") + (root.item.cloud != CloudBadge.none ? (root.item.thumb-state == ThumbState.none ? "" : "；") + "云盘：" + CloudText.text(root.item.cloud) : "");
     accessible-action-default => {
         root.activate(root.index);
     }
@@ -153,6 +177,13 @@ component GridCell inherits Rectangle {
                 tint: root.item.is-dir ? Theme.folder : root.item.thumb-state == ThumbState.loading ? Theme.text-disabled : Theme.text-secondary;
                 fill-color: root.item.is-dir ? Theme.folder-fill : transparent;
             }
+            // 云盘状态：压在类型图标的右下角（有缩略图时压在缩略图右下角，见下）
+            if root.item.cloud != CloudBadge.none && root.item.thumb-state != ThumbState.ready: CloudMark {
+                state: root.item.cloud;
+                size: max(16px, 18px * min(Theme.text-scale, 1.5));
+                x: (parent.width + GridMetrics.icon-h) / 2 - self.width * 0.75;
+                y: (parent.height + GridMetrics.icon-h) / 2 - self.height * 0.8;
+            }
             // 缩略图：完整显示（contain），不放大超过原始像素尺寸，居中
             if root.item.thumb-state == ThumbState.ready: thumb-image := Image {
                 property <length> natural-w: root.item.thumb.width * 1px;
@@ -165,6 +196,13 @@ component GridCell inherits Rectangle {
                 source: root.item.thumb;
                 image-fit: contain;
                 accessible-role: none;
+
+                if root.item.cloud != CloudBadge.none: CloudMark {
+                    state: root.item.cloud;
+                    size: max(16px, 18px * min(Theme.text-scale, 1.5));
+                    x: parent.width - self.width * 0.8;
+                    y: parent.height - self.height * 0.8;
+                }
             }
         }
 
@@ -394,6 +432,7 @@ component ListRow inherits Rectangle {
     accessible-item-selectable: true;
     accessible-item-selected: root.item.selected;
     accessible-item-index: root.index;
+    accessible-description: root.item.cloud != CloudBadge.none ? "云盘：" + CloudText.text(root.item.cloud) : "";
     accessible-action-default => {
         root.activate(root.index);
     }
@@ -453,6 +492,17 @@ component ListRow inherits Rectangle {
             font-size: Theme.font;
             vertical-alignment: center;
             overflow: elide;
+        }
+
+        // 云盘状态：名称列右端的小标记，与类型图标不叠放（列表行高有限，叠在图标角上看不清）
+        if root.item.cloud != CloudBadge.none: Rectangle {
+            width: Theme.icon-s;
+            CloudMark {
+                state: root.item.cloud;
+                size: Theme.icon-s * 0.9;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
         }
 
         if root.item.editing && root.shown: VerticalLayout {

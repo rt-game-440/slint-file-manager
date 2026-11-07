@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 /// 对话框里的按钮。对话框遮罩覆盖整个窗口，工具栏也有同名的“永久删除”，
 /// 所以取位于对话框标题下方的那个（对话框按钮在卡片底部）。
-fn dlg_btn(c: &Ctx, label: &str) -> Res<ElementHandle> {
+pub(crate) fn dlg_btn(c: &Ctx, label: &str) -> Res<ElementHandle> {
     let t = c.find_all(AccessibleRole::Text, "对话框标题");
     let ty = t.first().ok_or("对话框没有显示")?.absolute_position().y;
     c.find_all(AccessibleRole::Button, label)

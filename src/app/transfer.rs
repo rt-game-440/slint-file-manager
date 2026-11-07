@@ -484,7 +484,7 @@ impl Controller {
             self.touch_rows(&keys);
         }
         let verb = if cut { "剪切" } else { "复制" };
-        let msg = match paths.as_slice() {
+        let mut msg = match paths.as_slice() {
             [one] => format!(
                 "已{verb}“{}”，到目标位置按 Ctrl+V 粘贴",
                 one.file_name()
@@ -493,6 +493,14 @@ impl Controller {
             ),
             _ => format!("已{verb} {} 项，到目标位置按 Ctrl+V 粘贴", paths.len()),
         };
+        // 复制含仅在线文件：粘贴时才会读取内容并让云盘客户端下载，提前说明
+        if !cut {
+            let c =
+                crate::cloud::count_online_only(&paths, 2000, std::time::Duration::from_millis(40));
+            if c.any() {
+                msg += &format!("。{}", c.hint().replacen("包含", "其中包含", 1));
+            }
+        }
         self.set_info(&msg);
     }
 
@@ -977,6 +985,11 @@ impl Controller {
         let Some(srcs) = srcs else {
             return;
         };
+        // 拖给别的程序时，对方读取文件会让云盘客户端下载仅在线文件：拖出时就说明
+        let c = crate::cloud::count_online_only(&srcs, 2000, std::time::Duration::from_millis(40));
+        if c.any() {
+            self.set_info(&format!("正在拖出 {}：{}", label_of(&srcs), c.hint()));
+        }
         match &self.os_drag {
             OsDrag::Record(log) => log.borrow_mut().push(srcs),
             OsDrag::Shell => {

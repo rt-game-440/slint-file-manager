@@ -72,11 +72,18 @@ impl slint_file_manager::thumbs::shell::ShellProvider for FakeShell {
 
 /// 文件项的无障碍描述（缩略图状态）。
 pub fn desc(c: &Ctx, name: &str) -> String {
-    c.item(name)
+    let full = c
+        .item(name)
         .ok()
         .and_then(|e| e.accessible_description())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| "<找不到>".into())
+        .unwrap_or_else(|| "<找不到>".into());
+    // 描述末尾可能带“云盘：…”（Issue #14），缩略图状态只看前半
+    full.split("云盘：")
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('；')
+        .to_string()
 }
 
 fn states(c: &Ctx) -> Vec<String> {

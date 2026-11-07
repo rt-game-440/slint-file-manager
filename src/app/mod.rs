@@ -1206,7 +1206,44 @@ impl Controller {
         }
     }
 
+    /// 打开前的云盘提示（Issue #14）：只在云端的文件，打开才会让同步客户端下载，这是用户明确的操作，允许，但要让人看得出来。
+    /// 提供方当前不可用（客户端未运行、断网）时如实说明，仍交给默认应用（它读不到内容会自己报错）。
+    fn note_open(&self, paths: &[PathBuf]) {
+        use std::os::windows::fs::MetadataExt;
+        let online: Vec<&PathBuf> = paths
+            .iter()
+            .filter(|p| {
+                std::fs::metadata(p).is_ok_and(|m| crate::cloud::is_recall(m.file_attributes()))
+            })
+            .collect();
+        let Some(first) = online.first() else { return };
+        let root = first
+            .parent()
+            .and_then(|d| self.backend.cloud().sync_root(d));
+        let who = root.as_ref().map_or("云盘客户端".to_string(), |r| {
+            crate::cloud::provider_label(&r.provider).to_string()
+        });
+        let what = if online.len() == 1 {
+            format!(
+                "“{}”",
+                first
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            )
+        } else {
+            format!("{} 个文件", online.len())
+        };
+        match root.as_ref().and_then(|r| r.warning()) {
+            Some(w) => self.set_message(&format!("{what}只在云端，{w}。仍已请求打开，可能失败")),
+            None => self.set_info(&format!(
+                "{what}只在云端，正在通过 {who} 下载并打开（需要网络，速度取决于同步客户端）"
+            )),
+        }
+    }
+
     fn open(&self, paths: Vec<PathBuf>) {
+        self.note_open(&paths);
         match &self.opener {
             Opener::Record(log) => log.borrow_mut().extend(paths),
             Opener::Shell => {
@@ -1409,6 +1446,10 @@ impl Controller {
         if t.is_restored() && t.is_unavailable() {
             return "此标签的位置当前不可用，标签已保留；磁盘重新连接或路径恢复后点“重试”".into();
         }
+        // 云盘提供方不可用（同步客户端未运行、断网、出错）：已下载的文件照常，仅在线文件暂时下载不了
+        if let Some(w) = t.cloud_root().and_then(|r| r.warning()) {
+            return w;
+        }
         self.notice.borrow().clone()
     }
 
@@ -1504,6 +1545,13 @@ impl Controller {
                 let size = t.selected_size();
                 if size > 0 {
                     s += &format!("（{}）", format::size_text(size));
+                }
+                // 单选一个云盘项目：状态栏用文字说明它的云盘状态（图标之外的说明）
+                if t.selected_count() == 1
+                    && let Some(r) = t.rows().iter().find(|r| r.selected)
+                    && r.entry.cloud.is_cloud()
+                {
+                    s += &format!("　云盘：{}", r.entry.cloud.text());
                 }
             }
             s.into()

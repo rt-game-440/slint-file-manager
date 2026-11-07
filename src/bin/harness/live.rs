@@ -141,6 +141,7 @@ fn live_env(watch: bool, drives: DriveSource, fav: Option<PathBuf>) -> LiveEnv {
         favorites: fav.map(FavoritesStore::at),
         onedrive: None,
         icloud: None,
+        icloud_photos: None,
         watch,
     }
 }
@@ -194,6 +195,7 @@ pub fn showcase_env(tag: &str) -> Res<LiveEnv> {
         favorites: Some(FavoritesStore::at(&dir)),
         onedrive: Some(fixture::path(fixture::EMPTY)),
         icloud: None,
+        icloud_photos: None,
         watch: false,
     })
 }

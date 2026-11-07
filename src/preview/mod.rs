@@ -13,10 +13,8 @@
 
 pub mod loader;
 
-use crate::thumbs::decode::is_cloud_placeholder;
 use crate::thumbs::webp;
 use std::io::Cursor;
-use std::os::windows::fs::MetadataExt;
 use std::path::Path;
 
 /// 预览资源上限。
@@ -148,13 +146,12 @@ pub fn is_video(ext: &str) -> bool {
 
 /// 读取并解码一个文件。
 pub fn decode_file(path: &Path, lim: &Limits) -> Result<Decoded, Failure> {
-    let meta = std::fs::metadata(path).map_err(|_| Failure::Missing)?;
-    if is_cloud_placeholder(meta.file_attributes()) {
-        return Err(Failure::Cloud);
-    }
-    if !meta.is_file() {
-        return Err(Failure::Unsupported);
-    }
+    // 云端占位文件不读取内容（守卫：先查属性再打开，打开后在句柄上再查一次）
+    let (mut file, meta) = crate::cloud::open_local_only(path).map_err(|g| match g {
+        crate::cloud::Guard::Cloud => Failure::Cloud,
+        crate::cloud::Guard::NotFile => Failure::Unsupported,
+        crate::cloud::Guard::Io => Failure::Missing,
+    })?;
     if meta.len() > lim.max_file_bytes {
         return Err(Failure::TooLarge {
             w: 0,
@@ -162,7 +159,8 @@ pub fn decode_file(path: &Path, lim: &Limits) -> Result<Decoded, Failure> {
             bytes: meta.len(),
         });
     }
-    let bytes = std::fs::read(path).map_err(|_| Failure::Missing)?;
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|_| Failure::Missing)?;
     decode_bytes(&bytes, lim)
 }
 

@@ -18,6 +18,21 @@ export enum ThumbState { none, loading, ready, failed, timeout }
 // 大图预览（Issue #13）的状态：loading 首次打开、尚无图像；ready 有图像；failed 无法预览（损坏、过大、云端占位……）。
 export enum PreviewState { loading, ready, failed }
 
+// 云盘状态标记（Issue #14，OneDrive／iCloud）：none 不在云盘；online 仅在线（未下载）；unavailable 仅在线但同步客户端不可用；
+// local 本地可用（已下载，可被释放）；pinned 始终保留在本设备。状态来自云文件 API，不只看属性位。
+export enum CloudBadge { none, online, unavailable, local, pinned }
+
+export global CloudText {
+    // 无障碍描述与 harness 断言用的文字
+    public pure function text(b: CloudBadge) -> string {
+        if (b == CloudBadge.online) { return "仅在线（未下载到本机）"; }
+        if (b == CloudBadge.unavailable) { return "仅在线，同步客户端当前不可用，暂时无法下载"; }
+        if (b == CloudBadge.local) { return "本地可用（已下载，空间不足时可被释放）"; }
+        if (b == CloudBadge.pinned) { return "始终保留在本设备"; }
+        return "";
+    }
+}
+
 // 文件列表中的一项。所有文字来自真实元数据。
 export struct FileItem {
     name: string,
@@ -35,6 +50,8 @@ export struct FileItem {
     cut: bool,
     // 拖放的当前目标文件夹：高亮
     drop-target: bool,
+    // 云盘状态（不在云盘为 none）
+    cloud: CloudBadge,
 }
 
 // 窗口坐标命中的面板与条目（-1 表示不在任何面板／不在任何条目上）。
