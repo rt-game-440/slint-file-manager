@@ -1,0 +1,396 @@
+// 图片大图预览（Issue #13）：覆盖整个窗口的轻量查看层，只看图，不提供任何编辑功能。
+// - 键盘：空格／Esc 关闭；← → （PageUp／PageDown）在同目录图片间切换，Home／End 到首尾；1 实际大小，0 或 F 适应窗口；P 播放／暂停动图。
+// - 打开时淡入（opacity，160ms）；打开后抢走键盘焦点，关闭后由 Rust 把焦点还给原面板。
+// - 状态：loading（首次打开，尚无图像）、ready（有图像；切换时 busy 为真表示新图还在后台解码，旧图保持显示）、failed（说明文字）。
+// 标识：groupbox “图片预览”；按钮的 accessible-label 即按钮文字；文字元素带 accessible-label／value 供 harness 读取。
+import { Theme } from "theme.slint";
+import { PreviewState } from "types.slint";
+
+component PvButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> checked: false;
+    callback clicked();
+
+    height: Theme.control-h;
+    width: max(40px * Theme.text-scale, label.preferred-width + 24px);
+    border-radius: 6px;
+    background: !root.enabled ? transparent : root.checked ? #ffffff2e : ta.pressed ? #ffffff29 : ta.has-hover ? #ffffff1f : transparent;
+    border-width: root.checked ? 1px : 0px;
+    border-color: #ffffff59;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checked;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    animate background { duration: 90ms; }
+
+    label := Text {
+        text: root.text;
+        color: root.enabled ? #f2f4f7 : #8a919c;
+        font-size: Theme.font;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// 画面两侧的切换按钮。
+component SideArrow inherits Rectangle {
+    in property <string> label;
+    in property <bool> left: true;
+    callback clicked();
+
+    width: 44px * Theme.text-scale;
+    height: 44px * Theme.text-scale;
+    border-radius: self.width / 2;
+    background: ta.pressed ? #ffffff40 : ta.has-hover ? #ffffff2e : #00000066;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.clicked();
+    }
+    animate background { duration: 90ms; }
+
+    Path {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 22px * Theme.text-scale;
+        height: 22px * Theme.text-scale;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.left ? "M15 5 L8 12 L15 19" : "M9 5 L16 12 L9 19";
+        stroke: #ffffff;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        fill: transparent;
+    }
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component PreviewOverlay inherits Rectangle {
+    in property <PreviewState> state: PreviewState.loading;
+    in property <string> title;
+    // “3 / 12”
+    in property <string> position;
+    in property <image> image;
+    // “1200 × 800 像素 · 245 KB”
+    in property <string> info;
+    // 失败说明
+    in property <string> message;
+    // 附加说明（如动图过大只显示第一帧）
+    in property <string> note;
+    in property <bool> one-to-one: false;
+    in property <bool> animated: false;
+    in property <bool> playing: false;
+    // 新图还在后台解码（切换时旧图保持显示）
+    in property <bool> busy: false;
+    in property <bool> can-prev: false;
+    in property <bool> can-next: false;
+    // 每次打开加一，让键盘焦点回到预览层
+    in property <int> focus-token;
+    callback close();
+    callback step(int);
+    callback set-one-to-one(bool);
+    callback toggle-play();
+
+    // 打开时淡入
+    in-out property <float> appear: 0;
+    opacity: root.appear;
+    animate appear { duration: 160ms; easing: ease-out; }
+    init => {
+        root.appear = 1;
+        scope.focus();
+    }
+    changed focus-token => {
+        scope.focus();
+    }
+
+    // 不透明：下面的界面不能透出来干扰看图
+    background: #101318;
+    accessible-role: groupbox;
+    accessible-label: "图片预览";
+    accessible-description: root.state == PreviewState.loading ? "加载中" : root.state == PreviewState.failed ? "无法预览" : root.busy ? "切换中" : "已显示";
+
+    // 吞掉预览层上的鼠标操作，不落到下面的界面
+    TouchArea { }
+
+    scope := FocusScope {
+        key-pressed(e) => {
+            if (e.text == Key.Escape || e.text == " ") {
+                root.close();
+                return accept;
+            }
+            if (e.modifiers.control || e.modifiers.alt) {
+                return accept;
+            }
+            if (e.text == Key.LeftArrow || e.text == Key.PageUp) {
+                root.step(-1);
+            } else if (e.text == Key.RightArrow || e.text == Key.PageDown) {
+                root.step(1);
+            } else if (e.text == Key.Home) {
+                root.step(-1000000);
+            } else if (e.text == Key.End) {
+                root.step(1000000);
+            } else if (e.text == "1") {
+                root.set-one-to-one(true);
+            } else if (e.text == "0" || e.text == "f" || e.text == "F") {
+                root.set-one-to-one(false);
+            } else if ((e.text == "p" || e.text == "P") && root.animated) {
+                root.toggle-play();
+            }
+            // 其余按键一律吞掉，不让它们落到下面的界面
+            accept
+        }
+
+        VerticalLayout {
+            // ---------- 顶栏 ----------
+            top := Rectangle {
+                height: Theme.toolbar-h;
+                background: #00000052;
+
+                Text {
+                    x: 20px;
+                    width: max(40px, parent.width - btns.width - 20px - 24px);
+                    height: parent.height;
+                    text: root.title;
+                    color: #ffffff;
+                    font-size: Theme.font-title;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: text;
+                    accessible-label: "预览文件名";
+                    accessible-value: root.title;
+                }
+
+                btns := HorizontalLayout {
+                    x: parent.width - self.width - 12px;
+                    y: (parent.height - Theme.control-h) / 2;
+                    width: self.preferred-width;
+                    height: Theme.control-h;
+                    spacing: 8px;
+
+                    Text {
+                        text: root.position;
+                        color: #c9ced6;
+                        font-size: Theme.font;
+                        vertical-alignment: center;
+                        accessible-role: text;
+                        accessible-label: "预览位置";
+                        accessible-value: root.position;
+                    }
+
+                    PvButton {
+                        text: "适应窗口";
+                        checked: !root.one-to-one;
+                        enabled: root.state == PreviewState.ready;
+                        clicked => {
+                            root.set-one-to-one(false);
+                        }
+                    }
+
+                    PvButton {
+                        text: "100%";
+                        checked: root.one-to-one;
+                        enabled: root.state == PreviewState.ready;
+                        clicked => {
+                            root.set-one-to-one(true);
+                        }
+                    }
+
+                    if root.animated: PvButton {
+                        text: root.playing ? "暂停动画" : "播放动画";
+                        clicked => {
+                            root.toggle-play();
+                        }
+                    }
+
+                    PvButton {
+                        text: "关闭预览";
+                        clicked => {
+                            root.close();
+                        }
+                    }
+                }
+            }
+            // ---------- 画面 ----------
+            stage := Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+                accessible-role: groupbox;
+                accessible-label: "预览画面";
+                accessible-description: root.info;
+
+                property <length> iw: max(1px, root.image.width * 1phx);
+                property <length> ih: max(1px, root.image.height * 1phx);
+                // 适应窗口：只缩小不放大（小图按原大小居中）
+                property <float> fit: min(1.0, min(self.width / self.iw, self.height / self.ih));
+                property <length> shown-w: root.one-to-one ? self.iw : self.iw * self.fit;
+                property <length> shown-h: root.one-to-one ? self.ih : self.ih * self.fit;
+
+                if root.state != PreviewState.failed: flick := Flickable {
+                    width: parent.width;
+                    height: parent.height;
+                    content-width: max(stage.shown-w, self.width);
+                    content-height: max(stage.shown-h, self.height);
+                    interactive: root.one-to-one;
+
+                    pic := Image {
+                        source: root.image;
+                        x: (max(stage.shown-w, flick.width) - self.width) / 2;
+                        y: (max(stage.shown-h, flick.height) - self.height) / 2;
+                        width: stage.shown-w;
+                        height: stage.shown-h;
+                        image-fit: fill;
+                    }
+                }
+
+                if root.state == PreviewState.loading: Text {
+                    text: "正在加载…";
+                    color: #c9ced6;
+                    font-size: Theme.font-title;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    accessible-role: text;
+                    accessible-label: "预览状态";
+                    accessible-value: "正在加载";
+                }
+
+                if root.state == PreviewState.failed: VerticalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    padding-left: 60px;
+                    padding-right: 60px;
+
+                    Text {
+                        text: "无法预览这张图片";
+                        color: #ffffff;
+                        font-size: Theme.font-title;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        accessible-role: text;
+                        accessible-label: "预览状态";
+                        accessible-value: "无法预览";
+                    }
+
+                    Text {
+                        text: root.message;
+                        color: #c9ced6;
+                        font-size: Theme.font;
+                        wrap: word-wrap;
+                        horizontal-alignment: center;
+                        accessible-role: text;
+                        accessible-label: "预览失败原因";
+                        accessible-value: root.message;
+                    }
+                }
+
+                // 切换按钮
+                if root.can-prev: SideArrow {
+                    x: 16px;
+                    y: (parent.height - self.height) / 2;
+                    left: true;
+                    label: "上一张";
+                    clicked => {
+                        root.step(-1);
+                    }
+                }
+
+                if root.can-next: SideArrow {
+                    x: parent.width - self.width - 16px;
+                    y: (parent.height - self.height) / 2;
+                    left: false;
+                    label: "下一张";
+                    clicked => {
+                        root.step(1);
+                    }
+                }
+
+                // 右下角：切换时新图还在加载
+                if root.busy: Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: parent.height - self.height - 14px;
+                    width: busy-text.preferred-width + 24px;
+                    height: Theme.control-h;
+                    border-radius: self.height / 2;
+                    background: #000000a6;
+                    busy-text := Text {
+                        text: "正在加载…";
+                        color: #ffffff;
+                        font-size: Theme.font-small;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        accessible-role: text;
+                        accessible-label: "预览切换状态";
+                        accessible-value: "正在加载";
+                    }
+                }
+            }
+
+            // ---------- 底栏 ----------
+            bottom := Rectangle {
+                height: Theme.statusbar-h + 6px;
+                background: #00000052;
+
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    spacing: 16px;
+
+                    Text {
+                        text: root.info;
+                        color: #c9ced6;
+                        font-size: Theme.font-small;
+                        vertical-alignment: center;
+                        accessible-role: text;
+                        accessible-label: "预览图片信息";
+                        accessible-value: root.info;
+                    }
+
+                    Text {
+                        text: root.note;
+                        color: #f0c674;
+                        font-size: Theme.font-small;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        accessible-role: text;
+                        accessible-label: "预览附加说明";
+                        accessible-value: root.note;
+                    }
+
+                    Text {
+                        text: "← → 切换　空格／Esc 关闭　1 实际大小　0 适应窗口" + (root.animated ? "　P 播放／暂停" : "");
+                        color: #8a919c;
+                        font-size: Theme.font-small;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                        accessible-role: text;
+                        accessible-label: "预览快捷键提示";
+                        accessible-value: self.text;
+                    }
+                }
+            }
+        }
+    }
+}

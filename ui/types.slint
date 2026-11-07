@@ -15,6 +15,9 @@ export enum NavKey { left, right, up, down, home, end, page-up, page-down }
 // failed／timeout 都显示类型图标，不弹提示。
 export enum ThumbState { none, loading, ready, failed, timeout }
 
+// 大图预览（Issue #13）的状态：loading 首次打开、尚无图像；ready 有图像；failed 无法预览（损坏、过大、云端占位……）。
+export enum PreviewState { loading, ready, failed }
+
 // 文件列表中的一项。所有文字来自真实元数据。
 export struct FileItem {
     name: string,

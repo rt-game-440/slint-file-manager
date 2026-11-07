@@ -15,6 +15,7 @@ use crate::browse::{LoadState, ViewMode as CoreView, Workspace};
 use crate::thumbs::cache::{self, DiskCache};
 use crate::thumbs::queue::{Job, rank};
 use crate::thumbs::sched::{self, Done, Manual, Scheduler};
+use crate::thumbs::shell::{self, ShellProvider, SystemShell};
 use crate::thumbs::{self, Fail, Source, Thumb};
 use crate::{ThumbState, perf};
 use std::cell::{Cell, RefCell};
@@ -45,6 +46,8 @@ pub struct ThumbEnv {
     pub cache_dir: Option<PathBuf>,
     /// 保存容量设置的文件（数据目录下的 `settings.json`）；`None` 时不保存。
     pub settings_file: Option<PathBuf>,
+    /// 系统缩略图提供者（视频、TIFF、HEIC 与云占位的缓存查询）；`None` 时这些文件显示类型图标。
+    pub shell: Option<Arc<dyn ShellProvider>>,
 }
 
 impl ThumbEnv {
@@ -53,6 +56,7 @@ impl ThumbEnv {
             mode: ThumbMode::Off,
             cache_dir: None,
             settings_file: None,
+            shell: None,
         }
     }
 
@@ -62,6 +66,7 @@ impl ThumbEnv {
             mode: ThumbMode::Threaded,
             cache_dir: thumbs::cache_dir(data_dir),
             settings_file: data_dir.map(|d| d.join("settings.json")),
+            shell: Some(Arc::new(SystemShell)),
         }
     }
 }
@@ -167,12 +172,15 @@ impl Thumbs {
         };
         let backend = match env.mode {
             ThumbMode::Off => Backend::Off,
-            ThumbMode::Threaded => {
-                Backend::Threaded(Scheduler::new(sched::Config::product(disk.clone()), sink))
-            }
-            ThumbMode::Manual(slow) => {
-                Backend::Manual(RefCell::new(Manual::new(disk.clone(), slow)))
-            }
+            ThumbMode::Threaded => Backend::Threaded(Scheduler::new(
+                sched::Config::product(disk.clone(), env.shell.clone()),
+                sink,
+            )),
+            ThumbMode::Manual(slow) => Backend::Manual(RefCell::new(Manual::new(
+                disk.clone(),
+                slow,
+                env.shell.clone(),
+            ))),
         };
         Thumbs {
             backend,
@@ -268,13 +276,16 @@ impl Thumbs {
                 let mem = self.mem.borrow();
                 for (i, r) in order {
                     let en = &all[i].entry;
-                    if en.is_dir || en.bin.is_some() || !thumbs::wants_thumbnail(&en.ext) {
+                    if en.is_dir || en.bin.is_some() || !thumbs::wants_any_thumbnail(&en.ext) {
                         continue;
                     }
                     let src = Source::new(loc.join(&en.os_name), en.size, en.modified);
                     let key = src.key();
                     rows.insert(key, i);
-                    if r <= rank::VISIBLE_OTHER {
+                    // 系统缩略图（视频、TIFF、HEIC）较慢且串行，不计入首屏：首屏只看本应用自己解码的图片
+                    if r <= rank::VISIBLE_OTHER
+                        && shell::route(&en.ext) == Some(shell::Route::Native)
+                    {
                         visible_keys.insert(key);
                     }
                     if !mem.contains_key(&key) {
@@ -466,6 +477,11 @@ impl Thumbs {
 
     pub fn capacity_mb(&self) -> u64 {
         self.capacity_mb.get()
+    }
+
+    /// 设置文件（`数据目录\settings.json`）；没有数据目录时为 `None`。其他功能（预览的动图默认值）共用同一文件。
+    pub fn settings_file(&self) -> Option<&Path> {
+        self.settings_file.as_deref()
     }
 
     /// 设置持久缓存容量并保存设置。返回保存失败的说明。淘汰在后台线程执行（线程模式）。

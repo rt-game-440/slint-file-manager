@@ -1,5 +1,5 @@
-﻿# 观测框架定向验证：harness 特性下的 clippy、交互脚本（含重复一致性）、截图对比基线、
-# 动画逐帧采集两次并核对产物逐字节一致。编译并行度上限 6。
+﻿# 观测框架定向验证：harness 特性下的 clippy、交互脚本（含重复一致性，含大图预览与系统缩略图脚本）、截图对比基线、
+# 动画逐帧采集两次并核对产物逐字节一致（含预览打开动画及其曲线断言）。编译并行度上限 6。
 # 截图对比退出码 2（环境与基线不同，无法判断）只给警告，不算失败；1（回归）和 3（不稳定）算失败。
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
@@ -26,5 +26,12 @@ foreach ($f in 'curve.json', 'curve.csv', 'contact-sheet.png', 'anim.gif', 'fram
     $a = (Get-FileHash "artifacts/verify/a/$f").Hash
     $b = (Get-FileHash "artifacts/verify/b/$f").Hash
     if ($a -ne $b) { Write-Error "$f 两次采集不一致"; exit 1 }
+}
+Step '预览打开动画采集（第 1 次，含曲线断言）' { & $h frames --scenario preview-appear --duration 320 --out artifacts/verify/pa }
+Step '预览打开动画采集（第 2 次）' { & $h frames --scenario preview-appear --duration 320 --out artifacts/verify/pb }
+foreach ($f in 'curve.json', 'curve.csv', 'contact-sheet.png', 'anim.gif', 'frame_0005_t0080ms.png') {
+    $a = (Get-FileHash "artifacts/verify/pa/$f").Hash
+    $b = (Get-FileHash "artifacts/verify/pb/$f").Hash
+    if ($a -ne $b) { Write-Error "预览动画 $f 两次采集不一致"; exit 1 }
 }
 Write-Host '观测框架验证通过'

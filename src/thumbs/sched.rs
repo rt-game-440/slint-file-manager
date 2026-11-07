@@ -11,12 +11,17 @@
 
 use super::cache::DiskCache;
 use super::decode::{self, Limits};
+use super::lane::{self, LaneCfg, ShellLane, execute_shell, merge_counters};
 use super::queue::{Job, Queue};
+use super::shell::{ShellProvider, path_is_shell};
 use super::{Fail, Source, Thumb};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
+
+/// 记住“需要系统缩略图”的文件键的上限（超过就清空重来，最坏多做一次原生判定）。
+const SHELL_KEYS_MAX: usize = 4096;
 
 /// 一次生成的结果。
 #[derive(Clone, Debug)]
@@ -49,11 +54,17 @@ pub struct Config {
     pub limits: Limits,
     pub disk: Option<Arc<DiskCache>>,
     pub inject: Option<Inject>,
+    /// 系统缩略图提供者（视频、TIFF、HEIC 与云占位的缓存查询）；`None` 时这些文件显示类型图标
+    pub shell: Option<Arc<dyn ShellProvider>>,
+    /// Shell 车道的硬超时、让路上限、允许卡住的线程数（见 [`LaneCfg`]）
+    pub shell_hard_timeout: Duration,
+    pub shell_defer: Duration,
+    pub shell_max_stuck: usize,
 }
 
 impl Config {
     /// 研究 0005 选定的参数：300 ms 增援、2 s 硬超时、最多增援 4 个线程。
-    pub fn product(disk: Option<Arc<DiskCache>>) -> Config {
+    pub fn product(disk: Option<Arc<DiskCache>>, shell: Option<Arc<dyn ShellProvider>>) -> Config {
         Config {
             workers: super::default_workers(),
             slow_after: Duration::from_millis(300),
@@ -62,6 +73,10 @@ impl Config {
             limits: Limits::default(),
             disk,
             inject: None,
+            shell,
+            shell_hard_timeout: lane::HARD_TIMEOUT,
+            shell_defer: lane::DEFER,
+            shell_max_stuck: lane::MAX_STUCK,
         }
     }
 }
@@ -79,6 +94,12 @@ pub struct Counters {
     pub from_disk: u64,
     pub decoded: u64,
     pub cache_write_failed: u64,
+    /// 其中由系统缩略图（Shell）生成的数量（已计入 `decoded`）
+    pub shell_ok: u64,
+    /// 原生解码判定“需要系统缩略图”而转入 Shell 车道的请求数
+    pub shell_handoff: u64,
+    /// Shell 车道累计卡住（被替换）的工作线程数
+    pub shell_stuck: u64,
 }
 
 /// 执行一个请求：磁盘缓存 → 解码。返回结果与（需要时）待写入缓存的缩略图与代号。
@@ -119,6 +140,10 @@ struct Inner {
     extra_live: usize,
     shutdown: bool,
     c: Counters,
+    /// 每个面板当前想要的全部请求键（含在途的），用于判断转交 Shell 车道的请求是否还有人需要
+    wanted: [HashSet<u64>; 2],
+    /// 已知需要系统缩略图的文件键（原生解码判定为不支持或云占位）：再次请求时直接走 Shell 车道
+    shell_keys: HashSet<u64>,
 }
 
 struct Shared {
@@ -126,6 +151,8 @@ struct Shared {
     cv: Condvar,
     sink: Sink,
     cfg: Config,
+    /// 系统缩略图车道（没有提供者时为空）
+    lane: OnceLock<ShellLane>,
 }
 
 impl Shared {
@@ -153,11 +180,32 @@ impl Scheduler {
                 extra_live: 0,
                 shutdown: false,
                 c: Counters::default(),
+                wanted: Default::default(),
+                shell_keys: HashSet::new(),
             }),
             cv: Condvar::new(),
             sink,
             cfg,
+            lane: OnceLock::new(),
         });
+        if let Some(provider) = sh.cfg.shell.clone() {
+            let weak: Weak<Shared> = Arc::downgrade(&sh);
+            let busy = Box::new(move || {
+                weak.upgrade().is_some_and(|s| {
+                    let g = s.lock();
+                    !g.queue.is_empty() || !g.runs.is_empty()
+                })
+            });
+            let cfg = LaneCfg {
+                provider,
+                disk: sh.cfg.disk.clone(),
+                hard_timeout: sh.cfg.shell_hard_timeout,
+                defer: sh.cfg.shell_defer,
+                max_stuck: sh.cfg.shell_max_stuck,
+                inject: sh.cfg.inject.clone(),
+            };
+            let _ = sh.lane.set(ShellLane::new(cfg, sh.sink.clone(), busy));
+        }
         for _ in 0..workers {
             spawn_worker(sh.clone());
         }
@@ -169,27 +217,63 @@ impl Scheduler {
     }
 
     /// 替换面板 `pane` 想要的请求（已按优先级排序）。正在生成的同一文件不会重复排队。
+    ///
+    /// 请求按路线分流：视频、TIFF、HEIC 等（以及已知需要系统缩略图的文件）进 Shell 车道，其余进原生工作线程。
     pub fn set_wanted(&self, pane: usize, jobs: Vec<Job>) {
-        let mut g = self.sh.lock();
-        let Inner {
-            queue,
-            running_keys,
-            c,
-            ..
-        } = &mut *g;
-        let n = queue.set_wanted(pane, jobs, |k| running_keys.contains_key(&k));
-        c.cancelled_queued += n as u64;
+        let lane = self.sh.lane.get();
+        let (native, shell): (Vec<Job>, Vec<Job>) = {
+            let g = self.sh.lock();
+            jobs.iter().cloned().partition(|j| {
+                lane.is_none() || !(path_is_shell(&j.src.path) || g.shell_keys.contains(&j.key))
+            })
+        };
+        {
+            let mut g = self.sh.lock();
+            g.wanted[pane.min(1)] = jobs.iter().map(|j| j.key).collect();
+            let Inner {
+                queue,
+                running_keys,
+                c,
+                ..
+            } = &mut *g;
+            let n = queue.set_wanted(pane, native, |k| running_keys.contains_key(&k));
+            c.cancelled_queued += n as u64;
+        }
+        if let Some(l) = lane {
+            l.set_wanted(pane, shell);
+        }
         self.sh.cv.notify_all();
     }
 
     pub fn counters(&self) -> Counters {
-        self.sh.lock().c.clone()
+        let mut c = self.sh.lock().c.clone();
+        if let Some(l) = self.sh.lane.get() {
+            merge_counters(&mut c, &l.counters());
+            c.shell_stuck = l.stuck() as u64;
+        }
+        c
     }
 
-    /// 排队中与生成中的请求数。
+    /// 排队中与生成中的请求数（含 Shell 车道）。
     pub fn pending(&self) -> (usize, usize) {
         let g = self.sh.lock();
-        (g.queue.len(), g.runs.len())
+        let (mut q, mut r) = (g.queue.len(), g.runs.len());
+        if let Some(l) = self.sh.lane.get() {
+            let (lq, lr) = l.pending();
+            q += lq;
+            r += lr;
+        }
+        (q, r)
+    }
+
+    /// Shell 车道的（排队，在途）请求数。
+    pub fn shell_pending(&self) -> (usize, usize) {
+        self.sh.lane.get().map_or((0, 0), ShellLane::pending)
+    }
+
+    /// Shell 车道是否因卡死线程过多而停用。
+    pub fn shell_disabled(&self) -> bool {
+        self.sh.lane.get().is_some_and(ShellLane::disabled)
     }
 }
 
@@ -198,6 +282,9 @@ impl Drop for Scheduler {
         // 不 join：卡在慢 I/O 里的线程无法回收，进程退出时一并结束
         self.sh.lock().shutdown = true;
         self.sh.cv.notify_all();
+        if let Some(l) = self.sh.lane.get() {
+            l.shutdown();
+        }
     }
 }
 
@@ -292,9 +379,21 @@ fn worker(sh: Arc<Shared>) {
         }
         let (outcome, from_disk, put) = execute(&job.src, &sh.cfg.limits, sh.cfg.disk.as_deref());
 
-        let (deliver, exit) = {
+        let (deliver, exit, handoff) = {
             let mut g = sh.lock();
             let run = g.runs.remove(&job_id).expect("运行记录存在");
+            // 原生解码判定“需要系统缩略图”（动图 WebP、其他不支持的内容、云占位文件）：转入 Shell 车道，
+            // 不在这里投递失败；仍被某个面板需要时才转交（滚走了就不浪费系统提取）
+            let handoff = matches!(outcome, Err(Fail::Unsupported | Fail::Cloud))
+                && sh.lane.get().is_some()
+                && g.wanted.iter().any(|w| w.contains(&job.key));
+            if handoff {
+                if g.shell_keys.len() >= SHELL_KEYS_MAX {
+                    g.shell_keys.clear();
+                }
+                g.shell_keys.insert(job.key);
+                g.c.shell_handoff += 1;
+            }
             if let Some(n) = g.running_keys.get_mut(&job.key) {
                 *n -= 1;
                 if *n == 0 {
@@ -318,20 +417,23 @@ fn worker(sh: Arc<Shared>) {
                     }
                 }
                 Err(f) => {
-                    if !run.timed_out {
+                    if !run.timed_out && !handoff {
                         *g.c.failed.entry(f.as_str()).or_insert(0) += 1;
                     }
                 }
             }
-            // 已报告超时、本次又失败：界面已有超时状态，不再投递
-            let deliver = !(run.timed_out && outcome.is_err());
+            // 已报告超时、本次又失败：界面已有超时状态，不再投递；转交 Shell 车道的由车道投递结果
+            let deliver = !(run.timed_out && outcome.is_err()) && !handoff;
             let exit = g.live_workers > sh.cfg.workers.max(1) + g.slow_running;
             if exit {
                 g.live_workers -= 1;
                 g.extra_live = g.extra_live.saturating_sub(1);
             }
-            (deliver.then_some((outcome, late)), exit)
+            (deliver.then_some((outcome, late)), exit, handoff)
         };
+        if handoff && let Some(l) = sh.lane.get() {
+            l.handoff(job.clone());
+        }
         if let Some((outcome, late)) = deliver {
             (sh.sink)(Done {
                 key: job.key,
@@ -361,17 +463,23 @@ pub struct Manual {
     limits: Limits,
     disk: Option<Arc<DiskCache>>,
     slow: Option<SlowFn>,
+    shell: Option<Arc<dyn ShellProvider>>,
     held: Vec<Job>,
     pub counters: Counters,
 }
 
 impl Manual {
-    pub fn new(disk: Option<Arc<DiskCache>>, slow: Option<SlowFn>) -> Manual {
+    pub fn new(
+        disk: Option<Arc<DiskCache>>,
+        slow: Option<SlowFn>,
+        shell: Option<Arc<dyn ShellProvider>>,
+    ) -> Manual {
         Manual {
             queue: Queue::default(),
             limits: Limits::default(),
             disk,
             slow,
+            shell,
             held: Vec::new(),
             counters: Counters::default(),
         }
@@ -422,7 +530,26 @@ impl Manual {
     }
 
     fn exec(&mut self, job: &Job, late: bool) -> Done {
-        let (outcome, from_disk, put) = execute(&job.src, &self.limits, self.disk.as_deref());
+        let disk = self.disk.as_deref();
+        let (outcome, from_disk, put, via_shell) = match &self.shell {
+            Some(p) if path_is_shell(&job.src.path) => {
+                let (o, d, put) = execute_shell(&job.src, p.as_ref(), disk);
+                (o, d, put, true)
+            }
+            Some(p) => match execute(&job.src, &self.limits, disk) {
+                // 原生解码判定需要系统缩略图（动图 WebP、云占位……）：与线程模式一样转交 Shell
+                (Err(Fail::Unsupported | Fail::Cloud), ..) => {
+                    self.counters.shell_handoff += 1;
+                    let (o, d, put) = execute_shell(&job.src, p.as_ref(), disk);
+                    (o, d, put, true)
+                }
+                (o, d, put) => (o, d, put, false),
+            },
+            None => {
+                let (o, d, put) = execute(&job.src, &self.limits, disk);
+                (o, d, put, false)
+            }
+        };
         match &outcome {
             Ok(_) => {
                 self.counters.ok += 1;
@@ -430,6 +557,9 @@ impl Manual {
                     self.counters.from_disk += 1;
                 } else {
                     self.counters.decoded += 1;
+                    if via_shell {
+                        self.counters.shell_ok += 1;
+                    }
                 }
                 if late {
                     self.counters.late_ready += 1;
@@ -477,6 +607,10 @@ mod tests {
                 limits: Limits::default(),
                 disk: None,
                 inject: Some(inject),
+                shell: None,
+                shell_hard_timeout: lane::HARD_TIMEOUT,
+                shell_defer: lane::DEFER,
+                shell_max_stuck: lane::MAX_STUCK,
             },
             Arc::new(move |d| {
                 let _ = tx.lock().unwrap().send(d);
@@ -577,6 +711,10 @@ mod tests {
                 limits: Limits::default(),
                 disk: None,
                 inject: Some(Arc::new(|_| Some(Duration::from_millis(400)))),
+                shell: None,
+                shell_hard_timeout: lane::HARD_TIMEOUT,
+                shell_defer: lane::DEFER,
+                shell_max_stuck: lane::MAX_STUCK,
             },
             Arc::new(move |d| {
                 let _ = tx.lock().unwrap().send(d);
@@ -615,6 +753,7 @@ mod tests {
             Some(Box::new(|p: &Path| {
                 p.to_string_lossy().contains("\\2.webp")
             })),
+            None,
         );
         m.set_wanted(0, jobs(0..4, 0));
         let r = m.run();

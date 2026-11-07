@@ -55,6 +55,16 @@ impl Queue {
         old.len() - kept.min(old.len())
     }
 
+    /// 追加一个请求（原生解码判定需要系统缩略图时交给 Shell 车道）。同一文件已在队列里则忽略。
+    pub fn add(&mut self, job: Job) {
+        if self.contains(job.key) {
+            return;
+        }
+        self.seq += 1;
+        self.items.push((job, self.seq));
+        self.items.sort_by_key(|(j, s)| (j.rank, *s));
+    }
+
     /// 取出优先级最高、且不在生成中的请求；同一文件在另一面板的重复请求一并移除。
     pub fn pop(&mut self, busy: impl Fn(u64) -> bool) -> Option<Job> {
         let i = self.items.iter().position(|(j, _)| !busy(j.key))?;

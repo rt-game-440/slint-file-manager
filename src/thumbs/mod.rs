@@ -4,15 +4,20 @@
 //! - WebP 用 libwebp 解码时缩放（有损不透明的 WebP 不需要整幅缓冲）；无损／带透明 WebP 同样走 libwebp，但受像素上限约束。
 //! - JPEG／PNG／GIF／BMP 用 `image` 整幅解码 + `fast_image_resize` 缩放，受像素上限约束；GIF 取第一帧。
 //! - 按内容识别格式（文件头），不看扩展名；扩展名只决定“要不要尝试生成”。
-//! - 云端占位文件（脱机／访问时召回属性）一律不读取内容，直接回退图标，避免隐式下载（ADR 0004、研究 0003）。
+//! - 云端占位文件（脱机／访问时召回属性）一律不读取内容，避免隐式下载（ADR 0004、研究 0003）；
+//!   只用 Shell 的 `SIIGBF_INCACHEONLY` 取系统缓存里已有的缩略图，拿不到回退图标（Issue #13）。
+//! - 视频（MP4／MKV 等）与 TIFF、HEIC 等本应用解不了的格式走系统缩略图回退（[`shell`]、[`lane`]）。
 //!
 //! 模块：[`decode`]（生成）、[`webp`]（libwebp 封装）、[`cache`]（磁盘缓存）、[`queue`]（优先队列，纯逻辑）、
-//! [`sched`]（工作线程池、慢文件增援与硬超时）。
+//! [`sched`]（工作线程池、慢文件增援与硬超时）、[`shell`]（系统缩略图提供者）、[`lane`]（系统缩略图车道：
+//! 单线程、让路、硬超时与替换线程）。
 
 pub mod cache;
 pub mod decode;
+pub mod lane;
 pub mod queue;
 pub mod sched;
+pub mod shell;
 pub mod webp;
 
 use std::path::{Path, PathBuf};
@@ -156,6 +161,11 @@ pub fn wants_thumbnail(ext: &str) -> bool {
         ext,
         "webp" | "jpg" | "jpeg" | "jpe" | "jfif" | "png" | "gif" | "bmp" | "dib"
     )
+}
+
+/// 这个扩展名是否值得请求缩略图：本应用自己能解码的格式，或交给系统缩略图的格式（视频、TIFF、HEIC……）。
+pub fn wants_any_thumbnail(ext: &str) -> bool {
+    shell::route(ext).is_some()
 }
 
 /// 工作线程数：`min(逻辑核数 - 2, 6)`，至少 2（研究 0005 第 1 节第 6 条）。

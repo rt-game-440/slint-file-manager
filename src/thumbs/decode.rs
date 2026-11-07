@@ -50,16 +50,19 @@ pub struct Generated {
     pub identity_ok: bool,
 }
 
-/// 读取并生成缩略图。
-pub fn generate(src: &Source, lim: &Limits) -> Result<Generated, Fail> {
-    let meta = std::fs::metadata(&src.path).map_err(|_| Fail::Io)?;
-    let attrs = meta.file_attributes();
-    if attrs
+/// 带云端占位属性（脱机／打开时召回／访问数据时召回）：读取内容会触发同步客户端下载。
+pub fn is_cloud_placeholder(attrs: u32) -> bool {
+    attrs
         & (FILE_ATTRIBUTE_OFFLINE
             | FILE_ATTRIBUTE_RECALL_ON_OPEN
             | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
         != 0
-    {
+}
+
+/// 读取并生成缩略图。
+pub fn generate(src: &Source, lim: &Limits) -> Result<Generated, Fail> {
+    let meta = std::fs::metadata(&src.path).map_err(|_| Fail::Io)?;
+    if is_cloud_placeholder(meta.file_attributes()) {
         // 云端占位：读取内容会触发同步客户端下载原文件（ADR 0004），本应用不读
         return Err(Fail::Cloud);
     }
