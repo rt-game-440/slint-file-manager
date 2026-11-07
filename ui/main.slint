@@ -6,29 +6,23 @@ import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { IconButton, WindowButton, MenuRow } from "controls.slint";
 import { BrowserPane } from "browser-pane.slint";
-import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView } from "types.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry } from "types.slint";
 
-export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView }
-
-struct SidebarEntry {
-    id: string,
-    label: string,
-    icon: string,
-    enabled: bool,
-}
+export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry }
 
 component SidebarRow inherits Rectangle {
     in property <SidebarEntry> entry;
     in property <bool> current;
     callback clicked();
+    callback removed();
 
     height: 36px * Theme.text-scale;
     border-radius: Theme.radius;
-    background: root.current ? Theme.accent-soft : (root.entry.enabled && ta.has-hover) ? Theme.hover : transparent;
+    background: root.current ? Theme.accent-soft : (root.entry.enabled && (ta.has-hover || x-ta.has-hover)) ? Theme.hover : transparent;
     accessible-role: button;
     accessible-label: root.entry.label;
     accessible-enabled: root.entry.enabled;
-    accessible-description: root.entry.enabled ? "" : "后续版本提供";
+    accessible-description: root.entry.description;
     accessible-checkable: true;
     accessible-checked: root.current;
     accessible-action-default => {
@@ -39,6 +33,7 @@ component SidebarRow inherits Rectangle {
 
     HorizontalLayout {
         padding-left: 12px;
+        padding-right: root.entry.removable ? 30px : 6px;
         spacing: 10px;
 
         Rectangle {
@@ -46,13 +41,13 @@ component SidebarRow inherits Rectangle {
             Icon {
                 y: (parent.height - self.height) / 2;
                 name: root.entry.icon;
-                tint: !root.entry.enabled ? Theme.text-disabled : root.current ? Theme.accent : Theme.text;
+                tint: !root.entry.enabled ? Theme.text-disabled : root.entry.warn ? Theme.warning : root.current ? Theme.accent : Theme.text;
             }
         }
 
         Text {
             text: root.entry.label;
-            color: root.entry.enabled ? Theme.text : Theme.text-disabled;
+            color: !root.entry.enabled || root.entry.warn ? Theme.text-disabled : Theme.text;
             font-size: Theme.font + 1px;
             vertical-alignment: center;
             overflow: elide;
@@ -64,6 +59,55 @@ component SidebarRow inherits Rectangle {
         clicked => {
             root.clicked();
         }
+    }
+
+    // 取消收藏：悬停时显现（元素始终存在，键盘与无障碍可达）
+    remove-button := Rectangle {
+        visible: root.entry.removable;
+        x: parent.width - 28px;
+        y: (parent.height - self.height) / 2;
+        width: 24px;
+        height: 24px;
+        border-radius: 12px;
+        opacity: (ta.has-hover || x-ta.has-hover) ? 1 : 0;
+        background: x-ta.has-hover ? Theme.pressed : transparent;
+        accessible-role: button;
+        accessible-label: "取消收藏 " + root.entry.label;
+        accessible-action-default => {
+            root.removed();
+        }
+        animate opacity { duration: 90ms; }
+
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            name: "tab-close";
+            size: 14px;
+            tint: Theme.text-secondary;
+        }
+
+        x-ta := TouchArea {
+            clicked => {
+                root.removed();
+            }
+        }
+    }
+}
+
+// 侧栏分组小标题。
+component SidebarHeader inherits Rectangle {
+    in property <string> label;
+    height: 28px * Theme.text-scale;
+    accessible-role: text;
+    accessible-label: root.label;
+
+    Text {
+        x: 12px;
+        y: parent.height - self.height - 3px;
+        text: root.label;
+        color: Theme.text-secondary;
+        font-size: Theme.font - 1px;
+        font-weight: 600;
     }
 }
 
@@ -100,6 +144,10 @@ export component MainWindow inherits Window {
     in property <string> status-message;
     // 侧栏当前项 id（位置与侧栏入口一致时高亮）
     in property <string> sidebar-current;
+    // 侧栏的位置入口（主目录、收藏、磁盘、云盘），Rust 生成；回收站入口见下方静态列表
+    in property <[SidebarEntry]> sidebar-places;
+    // 活动面板的当前位置是否已收藏
+    in property <bool> current-favorite;
 
     // 工具栏与键盘作用于活动面板
     property <PaneView> active-view: root.active-pane == 0 ? root.left-view : root.right-view;
@@ -145,15 +193,13 @@ export component MainWindow inherits Window {
     callback switch-pane();
     callback toggle-split();
     callback sidebar-clicked(string);
+    callback sidebar-remove(string);
+    callback toggle-favorite();
     callback request-close();
 
+    // 回收站入口（Issue #8 提供）；其余入口见 sidebar-places
     property <[SidebarEntry]> sidebar-entries: [
-        { id: "home", label: "主目录", icon: "home", enabled: true },
-        { id: "favorites", label: "收藏", icon: "star", enabled: false },
-        { id: "this-pc", label: "此电脑", icon: "computer", enabled: false },
-        { id: "onedrive", label: "OneDrive", icon: "cloud", enabled: false },
-        { id: "icloud", label: "iCloud", icon: "cloud", enabled: false },
-        { id: "recycle-bin", label: "回收站", icon: "trash", enabled: false },
+        { id: "recycle-bin", label: "回收站", icon: "trash", enabled: false, description: "后续版本提供" },
     ];
 
     public function begin-edit-address() {
@@ -191,6 +237,10 @@ export component MainWindow inherits Window {
             }
             if (e.text == Key.Backspace) {
                 root.go-back(root.active-pane);
+                return accept;
+            }
+            if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && (e.text == "d" || e.text == "D")) {
+                root.toggle-favorite();
                 return accept;
             }
             if (e.text == Key.F5) {
@@ -272,21 +322,45 @@ export component MainWindow inherits Window {
                             }
                         }
 
-                        VerticalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
-                            padding-top: 6px;
-                            spacing: 4px;
-                            alignment: start;
+                        Flickable {
                             vertical-stretch: 1;
-                            accessible-role: list;
-                            accessible-label: "导航";
+                            content-height: nav.preferred-height;
 
-                            for s in root.sidebar-entries: SidebarRow {
-                                entry: s;
-                                current: s.id == root.sidebar-current;
-                                clicked => {
-                                    root.sidebar-clicked(s.id);
+                            nav := VerticalLayout {
+                                width: parent.width;
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-top: 6px;
+                                padding-bottom: 8px;
+                                spacing: 4px;
+                                alignment: start;
+                                accessible-role: list;
+                                accessible-label: "导航";
+
+                                for s in root.sidebar-places: Rectangle {
+                                    height: s.header ? 28px * Theme.text-scale : 36px * Theme.text-scale;
+
+                                    if s.header: SidebarHeader {
+                                        label: s.label;
+                                    }
+                                    if !s.header: SidebarRow {
+                                        entry: s;
+                                        current: s.id == root.sidebar-current;
+                                        clicked => {
+                                            root.sidebar-clicked(s.id);
+                                        }
+                                        removed => {
+                                            root.sidebar-remove(s.id);
+                                        }
+                                    }
+                                }
+
+                                for s in root.sidebar-entries: SidebarRow {
+                                    entry: s;
+                                    current: s.id == root.sidebar-current;
+                                    clicked => {
+                                        root.sidebar-clicked(s.id);
+                                    }
                                 }
                             }
                         }
@@ -421,6 +495,30 @@ export component MainWindow inherits Window {
                                         clicked => {
                                             root.toggle-split();
                                         }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 9px;
+                                Rectangle {
+                                    x: 4px;
+                                    width: 1px;
+                                    height: 18px;
+                                    background: Theme.divider-strong;
+                                }
+                            }
+
+                            // 收藏当前位置（Ctrl+D）：已收藏时为选中外观，再点取消收藏
+                            VerticalLayout {
+                                alignment: center;
+                                favorite-button := IconButton {
+                                    icon: "star";
+                                    label: "收藏当前位置";
+                                    checkable: true;
+                                    checked: root.current-favorite;
+                                    clicked => {
+                                        root.toggle-favorite();
                                     }
                                 }
                             }

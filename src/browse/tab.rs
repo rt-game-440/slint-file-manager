@@ -143,6 +143,12 @@ pub struct Tab {
     selected_count: usize,
     changed: Vec<usize>,
     restore: Restore,
+    /// 静默刷新请求的序号（外部变化、磁盘恢复探测）：不显示“加载中”、不清空列表，结果按名称合并。
+    silent_seq: Option<u64>,
+    /// 读取过程中又收到了外部变化通知：读取完成后需要再静默刷新一次。
+    stale: bool,
+    /// 标签离开可见状态期间没有被监视，再次可见时需要静默刷新。
+    needs_refresh: bool,
 }
 
 impl Tab {
@@ -215,8 +221,69 @@ impl Tab {
         match self.state {
             LoadState::Idle => Some(self.begin(path, Restore::None)),
             LoadState::Failed { .. } => self.refresh(),
+            LoadState::Ready if self.needs_refresh => self.reload_silent(),
             _ => None,
         }
+    }
+
+    /// 标签不再被监视（切到后台、面板隐藏）：之后再次可见时静默刷新一次。
+    pub fn mark_needs_refresh(&mut self) {
+        if self.state == LoadState::Ready {
+            self.needs_refresh = true;
+        }
+    }
+
+    /// 外部变化（目录监视、磁盘恢复探测）引起的静默刷新：保留列表、选择与光标，不显示“加载中”。
+    /// 正在读取时不另发请求，而是记下“读完后再刷新一次”；尚未读取（`Idle`）或没有位置时返回 `None`。
+    pub fn reload_silent(&mut self) -> Option<LoadRequest> {
+        let path = self.location.clone()?;
+        match self.state {
+            LoadState::Idle => None,
+            LoadState::Loading => {
+                self.stale = true;
+                None
+            }
+            LoadState::Ready | LoadState::Failed { .. } => {
+                self.needs_refresh = false;
+                self.seq += 1;
+                self.silent_seq = Some(self.seq);
+                Some(LoadRequest {
+                    seq: self.seq,
+                    path,
+                    sort: self.sort,
+                })
+            }
+        }
+    }
+
+    /// 取走“读取期间又有变化”的标记。
+    pub fn take_stale(&mut self) -> bool {
+        std::mem::take(&mut self.stale)
+    }
+
+    /// 位置所在的磁盘已断开等：立即把标签标为不可用（清空列表、丢弃在途读取），位置保留。
+    /// 已经是不可用或尚未读取时返回 `false`。
+    pub fn mark_unavailable(&mut self, message: &str) -> bool {
+        if self.location.is_none() || !matches!(self.state, LoadState::Ready | LoadState::Loading) {
+            return false;
+        }
+        self.clear_rows();
+        self.seq += 1;
+        self.silent_seq = None;
+        self.stale = false;
+        self.state = LoadState::Failed {
+            kind: ListErrorKind::NotFound,
+            message: message.to_string(),
+        };
+        true
+    }
+
+    fn clear_rows(&mut self) {
+        self.rows.clear();
+        self.changed.clear();
+        self.cursor = None;
+        self.anchor = None;
+        self.selected_count = 0;
     }
 
     // ---------- 读取 ----------
@@ -332,13 +399,12 @@ impl Tab {
 
     fn begin(&mut self, path: PathBuf, restore: Restore) -> LoadRequest {
         self.location = Some(path.clone());
-        self.rows.clear();
-        self.changed.clear();
-        self.cursor = None;
-        self.anchor = None;
-        self.selected_count = 0;
+        self.clear_rows();
         self.state = LoadState::Loading;
         self.seq += 1;
+        self.silent_seq = None;
+        self.stale = false;
+        self.needs_refresh = false;
         self.restore = restore;
         LoadRequest {
             seq: self.seq,
@@ -349,6 +415,10 @@ impl Tab {
 
     /// 应用加载结果。旧请求的结果返回 `false` 并被丢弃。
     pub fn apply(&mut self, loaded: Loaded) -> bool {
+        if self.silent_seq == Some(loaded.seq) && loaded.seq == self.seq {
+            self.silent_seq = None;
+            return self.apply_silent(loaded);
+        }
         if loaded.seq != self.seq || self.state != LoadState::Loading {
             return false;
         }
@@ -393,6 +463,69 @@ impl Tab {
                 };
             }
         }
+        true
+    }
+
+    /// 静默刷新结果：与现有列表相同则不动（返回 `false`，界面无需重绘）；不同则按名称合并，
+    /// 保留仍存在条目的选择；光标条目被删时落到原位置的相邻条目，不跳到别处。
+    fn apply_silent(&mut self, loaded: Loaded) -> bool {
+        if !matches!(self.state, LoadState::Ready | LoadState::Failed { .. }) {
+            return false;
+        }
+        let mut entries = match loaded.result {
+            Ok(v) => v,
+            Err(e) => {
+                let new = LoadState::Failed {
+                    kind: e.kind,
+                    message: e.message,
+                };
+                if self.state == new {
+                    return false;
+                }
+                self.clear_rows();
+                self.state = new;
+                return true;
+            }
+        };
+        if loaded.sort != self.sort {
+            sort_by(&mut entries, self.sort, |e| e);
+        }
+        if self.state == LoadState::Ready
+            && entries.len() == self.rows.len()
+            && entries
+                .iter()
+                .zip(&self.rows)
+                .all(|(a, b)| same_entry(a, &b.entry))
+        {
+            return false;
+        }
+        let selected: std::collections::HashSet<OsString> = self
+            .rows
+            .iter()
+            .filter(|r| r.selected)
+            .map(|r| r.entry.os_name.clone())
+            .collect();
+        let cursor_name = self.cursor_name();
+        let cursor_old = self.cursor;
+        let anchor_name = self
+            .anchor
+            .and_then(|i| self.rows.get(i))
+            .map(|r| r.entry.os_name.clone());
+        self.rows = entries
+            .into_iter()
+            .map(|entry| Row {
+                selected: selected.contains(&entry.os_name),
+                entry,
+            })
+            .collect();
+        self.selected_count = self.rows.iter().filter(|r| r.selected).count();
+        self.cursor = cursor_name
+            .and_then(|n| self.index_of(&n))
+            .or_else(|| cursor_old.filter(|_| !self.rows.is_empty()))
+            .map(|i| i.min(self.rows.len().saturating_sub(1)));
+        self.anchor = anchor_name.and_then(|n| self.index_of(&n)).or(self.cursor);
+        self.changed.clear();
+        self.state = LoadState::Ready;
         true
     }
 
@@ -598,6 +731,11 @@ impl Tab {
     }
 }
 
+/// 两个条目显示信息是否相同（名称、类型、大小、修改时间）。
+fn same_entry(a: &Entry, b: &Entry) -> bool {
+    a.os_name == b.os_name && a.is_dir == b.is_dir && a.size == b.size && a.modified == b.modified
+}
+
 /// `child` 是 `parent` 的直接子路径时返回其名称。
 fn child_name(parent: &Path, child: &Path) -> Option<OsString> {
     (child.parent()? == parent).then(|| child.file_name().map(|n| n.to_os_string()))?
@@ -769,5 +907,140 @@ mod tests {
             }
         ));
         assert!(t.rows().is_empty());
+    }
+
+    // ---------- 静默刷新（外部变化，Issue #7） ----------
+
+    fn silent(t: &mut Tab, names: &[(&str, bool, u64)]) -> bool {
+        let r = t.reload_silent().expect("就绪的标签应能静默刷新");
+        let l = loaded(t, &r, names);
+        t.apply(l)
+    }
+
+    #[test]
+    fn silent_reload_keeps_selection_and_ignores_identical() {
+        let mut t = ready();
+        t.click(2, false, false); // b.txt
+        t.click(3, false, true); // 选到 c.txt
+        let before = t
+            .selected_names()
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        assert!(!silent(&mut t, ITEMS), "内容相同：不需要重绘");
+        assert_eq!(t.state(), &LoadState::Ready, "静默刷新不显示加载中");
+        // 外部新增 e.txt
+        let mut v = ITEMS.to_vec();
+        v.push(("e.txt", false, 5));
+        assert!(silent(&mut t, &v));
+        assert_eq!(t.rows().len(), 6);
+        assert_eq!(
+            t.selected_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            before,
+            "选择按名称保留"
+        );
+        assert_eq!(t.selected_count(), 2);
+        // 重新进入后再次相同则不重绘
+        assert!(!silent(&mut t, &v));
+    }
+
+    #[test]
+    fn silent_reload_cursor_stays_on_same_file_or_neighbor() {
+        let mut t = ready();
+        t.click(3, false, false); // c.txt（行 3）
+        assert_eq!(t.cursor(), Some(3));
+        // 在它前面新增文件：光标跟着文件走
+        let mut v = ITEMS.to_vec();
+        v.push(("a0.txt", false, 1));
+        assert!(silent(&mut t, &v));
+        let cur = t.cursor().unwrap();
+        assert_eq!(t.rows()[cur].entry.name, "c.txt");
+        // 删除光标文件：落到原位置的相邻条目，且仍有光标
+        let v: Vec<_> = v.into_iter().filter(|(n, _, _)| *n != "c.txt").collect();
+        assert!(silent(&mut t, &v));
+        let cur = t.cursor().expect("光标不应丢失");
+        assert!(cur < t.rows().len());
+        assert_ne!(t.rows()[cur].entry.name, "c.txt");
+        // 全部删除后光标为空
+        assert!(silent(&mut t, &[]));
+        assert_eq!(t.cursor(), None);
+        assert_eq!(t.rows().len(), 0);
+    }
+
+    #[test]
+    fn silent_reload_during_loading_marks_stale_and_explicit_nav_supersedes() {
+        let mut t = Tab::new();
+        let r = t.navigate(r"C:\根".into());
+        assert!(t.reload_silent().is_none(), "读取中不另发请求");
+        assert!(t.take_stale(), "但记下读完后要再刷新");
+        assert!(!t.take_stale());
+        let l = loaded(&t, &r, ITEMS);
+        assert!(t.apply(l));
+        // 静默请求在途时用户导航：旧结果丢弃
+        let r1 = t.reload_silent().unwrap();
+        let r2 = t.navigate(r"C:\别处".into());
+        let old = loaded(&t, &r1, ITEMS);
+        assert!(!t.apply(old), "导航之后，迟到的静默结果不能贴到新位置");
+        assert_eq!(t.location(), Some(Path::new(r"C:\别处")));
+        let _ = r2;
+    }
+
+    #[test]
+    fn unavailable_then_recovers_through_silent_probe() {
+        let mut t = ready();
+        t.click(1, false, false);
+        assert!(t.mark_unavailable("磁盘已断开"));
+        assert!(t.is_unavailable());
+        assert_eq!(t.rows().len(), 0);
+        assert_eq!(
+            t.location(),
+            Some(Path::new(r"C:\根")),
+            "位置保留，不改指向"
+        );
+        assert!(!t.mark_unavailable("again"), "已不可用不重复处理");
+        // 探测仍失败：状态不变且不要求重绘
+        let r = t.reload_silent().unwrap();
+        let fail = Loaded {
+            seq: r.seq,
+            sort: r.sort,
+            result: Err(ListError {
+                kind: ListErrorKind::NotFound,
+                os_code: Some(3),
+                message: "找不到路径".into(),
+            }),
+        };
+        assert!(
+            t.apply(fail),
+            "错误说明从‘已断开’变为系统说明，需要重绘一次"
+        );
+        let r = t.reload_silent().unwrap();
+        let fail = Loaded {
+            seq: r.seq,
+            sort: r.sort,
+            result: Err(ListError {
+                kind: ListErrorKind::NotFound,
+                os_code: Some(3),
+                message: "找不到路径".into(),
+            }),
+        };
+        assert!(!t.apply(fail), "同样的失败不重绘");
+        // 恢复
+        assert!(silent(&mut t, ITEMS));
+        assert_eq!(t.state(), &LoadState::Ready);
+        assert_eq!(t.rows().len(), ITEMS.len());
+    }
+
+    #[test]
+    fn hidden_tab_refreshes_when_shown_again() {
+        let mut t = ready();
+        assert!(t.ensure_loaded().is_none());
+        t.mark_needs_refresh();
+        let r = t.ensure_loaded().expect("再次可见时静默刷新一次");
+        assert_eq!(t.state(), &LoadState::Ready);
+        let _ = r;
+        assert!(t.ensure_loaded().is_none(), "只刷新一次");
     }
 }

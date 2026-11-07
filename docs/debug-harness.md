@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario grid-selected --out artifacts/tree.json` | JSON |
 | 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`） |
+| 磁盘／收藏／目录变化同步（侧栏、收藏持久化、外部变化、后台标签、轮询模式、真实 `subst` 虚拟盘插拔；61 步） | `powershell -File scripts/harness.ps1 live [--review-dir 目录]` | `artifacts/state/live.json`；`--review-dir` 额外输出 3 级审阅截图 |
 | 截图（100% 与 150%） | `powershell -File scripts/harness.ps1 snap` | `artifacts/snapshots/current/*.png` + `.json` |
 | 截图并与基线比较，输出差异图 | `powershell -File scripts/harness.ps1 compare` | `artifacts/snapshots/diff/*.diff.png`、`compare-report.json` |
 | 更新基线（人工确认后提交） | `powershell -File scripts/harness.ps1 bless` | `tests/baselines/` |
@@ -99,6 +100,7 @@
 ### 基线变更记录
 
 - **Issue #6（双栏独立标签）**：所有原有单栏场景的基线重新 `bless`。变化只发生在两处：顶部多了标签带（含当前标签与“新建标签”按钮）与面板顶边的活动蓝线；工具栏的“双栏”按钮由禁用态变为可用（单栏外观下为未选中态）。内容区与列表／网格像素未变（用旧基线逐像素比较确认差异只落在这两个区域）。同时新增 5 个双栏场景基线（见“新增场景”）。
+- **Issue #7（磁盘、收藏与目录变化）**：所有场景基线重新 `bless`。侧栏由静态占位改为
 
 ## 动画逐帧采集
 
