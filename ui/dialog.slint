@@ -1,0 +1,148 @@
+// 应用内模态对话框：删除确认、操作结果说明。覆盖整个窗口，打开时抢走键盘焦点，关闭后由 Rust 把焦点还给活动面板。
+// - 有取消按钮时 Esc = 取消；只有“知道了”时 Esc 与 Enter 都 = 确定。
+// - danger（永久删除）时 Enter 不触发确定，必须点击按钮，避免误按；默认动作永远是更安全的取消。
+// 标识：对话框 groupbox “对话框”，按钮的 accessible-label 即按钮文字。
+import { Theme } from "theme.slint";
+
+component DialogButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    callback clicked();
+
+    height: Theme.control-h;
+    width: max(84px * Theme.text-scale, label.preferred-width + 28px);
+    border-radius: 6px;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Theme.divider-strong;
+    background: root.primary ? (root.danger ? (ta.pressed ? #a3331f : ta.has-hover ? #b53a29 : Theme.danger) : (ta.pressed ? #2559b8 : ta.has-hover ? #2a64cf : Theme.accent)) : (ta.pressed ? Theme.pressed : ta.has-hover ? Theme.hover-soft : Theme.surface);
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    label := Text {
+        text: root.text;
+        color: root.primary ? #ffffff : Theme.text;
+        font-size: Theme.font;
+        font-weight: root.primary ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component ModalDialog inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    in property <string> confirm-label;
+    // 为空时不显示取消按钮（仅提示）
+    in property <string> cancel-label;
+    in property <bool> danger;
+    // 每次打开（含从一个对话框直接换成另一个、实例被复用时）加一，让键盘焦点回到对话框
+    in property <int> focus-token;
+    callback accepted();
+    callback cancelled();
+
+    changed focus-token => {
+        scope.focus();
+    }
+
+    background: #1f232933;
+    accessible-role: groupbox;
+    accessible-label: "对话框";
+    accessible-description: root.title;
+
+    // 吞掉对话框外的鼠标操作
+    TouchArea { }
+
+    scope := FocusScope {
+        init => {
+            self.focus();
+        }
+        key-pressed(e) => {
+            if (e.text == Key.Escape) {
+                if (root.cancel-label != "") {
+                    root.cancelled();
+                } else {
+                    root.accepted();
+                }
+                return accept;
+            }
+            if (e.text == Key.Return && !root.danger) {
+                root.accepted();
+                return accept;
+            }
+            // 其余按键一律吞掉，不让它们落到下面的界面
+            accept
+        }
+
+        card := Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: max(24px, (parent.height - self.height) / 3);
+            width: min(parent.width - 48px, 460px * Theme.text-scale);
+            height: content.preferred-height + 44px;
+            background: Theme.surface;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.divider;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 6px;
+            drop-shadow-color: #00000033;
+
+            content := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+
+                Text {
+                    text: root.title;
+                    color: root.danger ? Theme.danger : Theme.text;
+                    font-size: Theme.font-heading;
+                    font-weight: 600;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: "对话框标题";
+                    accessible-value: root.title;
+                }
+
+                Text {
+                    text: root.body;
+                    color: Theme.text-secondary;
+                    font-size: Theme.font;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: "对话框内容";
+                    accessible-value: root.body;
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 10px;
+                    padding-top: 8px;
+
+                    if root.cancel-label != "": DialogButton {
+                        text: root.cancel-label;
+                        clicked => {
+                            root.cancelled();
+                        }
+                    }
+
+                    DialogButton {
+                        text: root.confirm-label;
+                        primary: true;
+                        danger: root.danger;
+                        clicked => {
+                            root.accepted();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

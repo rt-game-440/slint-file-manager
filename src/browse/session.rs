@@ -152,7 +152,8 @@ fn as_path(v: &Value, ctx: &str) -> Result<PathBuf, ParseError> {
         .as_str()
         .ok_or_else(|| ParseError::Invalid(format!("{ctx}应为字符串")))?;
     let p = PathBuf::from(s);
-    if !p.is_absolute() {
+    // 回收站是虚拟位置（不是磁盘路径），允许进入会话
+    if !p.is_absolute() && !super::location::is_recycle_bin(&p) {
         return invalid(format!("{ctx}不是绝对路径"));
     }
     Ok(p)

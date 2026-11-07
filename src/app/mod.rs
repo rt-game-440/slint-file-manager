@@ -9,6 +9,10 @@
 //!   活动标签，其余标签在首次激活时才读取，所以标签再多也不阻塞窗口显示。变化后至多约 2 秒写盘一次，
 //!   正常退出时再写一次（[`Controller::save_now`]）。
 //! - 打开文件交给 Windows 默认应用（[`Opener::Shell`]，工作线程执行）；harness 用 [`Opener::Record`] 只记录路径。
+//! - 删除与回收站（见 [`ops`]）：Delete 移到回收站、Shift+Delete 永久删除，都先弹应用内确认；回收站是虚拟位置
+//!   （[`crate::browse::location::RECYCLE_BIN`]），由外壳命名空间读取，视图里可“还原所选项目”。操作在工作线程逐项执行，
+//!   按真实结果汇报；完成后重新读取受影响位置的所有标签（本应用操作后刷新，不依赖目录监视，也不会重复条目）。
+//!   文件后端可注入（[`Env::backend`]）：产品用系统回收站，harness 用临时目录“回收站”。
 //! - 开启 `--debug-perf` 时记录进入目录的耗时：`dir-loaded-us`（结果回到界面线程）、
 //!   `dir-ready-us`（新内容第一帧渲染完成），均自导航请求起算；会话恢复耗时为 `session-restore-us`。
 
@@ -17,6 +21,7 @@ pub mod model;
 
 pub use live::{DriveSource, LiveEnv};
 
+pub mod ops;
 use crate::browse::location::{self, Crumb as PathCrumb};
 use crate::browse::session::{LoadOutcome, SessionState, SessionStore};
 use crate::browse::workspace::{CloseError, MAX_TABS, Pane};
@@ -24,6 +29,7 @@ use crate::browse::{
     Activation, Job, ListErrorKind, LoadState, Loaded, Nav, SortKey as CoreSortKey, SortSpec, Tab,
     TabId, ViewMode as CoreView, Workspace, format,
 };
+use crate::fileops::{Backend, SystemBackend};
 use crate::{
     ContentState, Crumb, MainWindow, NavKey, PaneView, SortKey, TabInfo, ViewMode, perf, shell,
 };
@@ -33,6 +39,7 @@ use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -70,6 +77,8 @@ pub struct Env {
     pub fresh_split: bool,
     /// 侧栏的磁盘与收藏、目录监视（见 [`live`]）。
     pub live: LiveEnv,
+    /// 删除、回收站枚举与还原的后端：产品为系统回收站，harness 注入临时目录“回收站”。
+    pub backend: Arc<dyn Backend>,
 }
 
 impl Env {
@@ -86,12 +95,14 @@ impl Env {
                     .map(|s| crate::browse::places::FavoritesStore::at(s.dir())),
             ),
             store,
+            backend: Arc::new(SystemBackend),
         }
     }
 }
 
 enum Msg {
     Loaded { tab: TabId, loaded: Loaded },
+    OpDone(ops::OpDone),
     OpenFailed { failed: usize, message: String },
 }
 
@@ -128,8 +139,15 @@ pub struct Controller {
     ui: [PaneUi; 2],
     loader: Loader,
     opener: Opener,
+    backend: Arc<dyn Backend>,
     home: Option<PathBuf>,
     store: Option<SessionStore>,
+    /// 当前打开的对话框（删除确认或结果说明）；同一时刻至多一个
+    dialog: RefCell<Option<ops::Dialog>>,
+    /// 有删除或还原正在后台执行
+    busy: Cell<bool>,
+    /// 当前提示是成功／普通信息（false 时状态栏显示为警示红）
+    message_ok: Cell<bool>,
     /// 自上次保存后，会话相关状态是否有变化
     dirty: Cell<bool>,
     /// 最近一次保存是否失败（避免每次定时都重复提示）
@@ -206,8 +224,12 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         ui,
         loader: env.loader,
         opener: env.opener,
+        backend: env.backend,
         home: env.home,
         store: env.store,
+        dialog: RefCell::new(None),
+        busy: Cell::new(false),
+        message_ok: Cell::new(false),
         dirty: Cell::new(false),
         save_failed: Cell::new(false),
         nav_started: Cell::new(None),
@@ -270,6 +292,10 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_activate_selection, c => |p| c.activate_selection(pane(p)));
     on!(on_toggle_cursor, c => |p| c.toggle_cursor(pane(p)));
     on!(on_open_location, c => |p| c.open_location(pane(p)));
+    on!(on_delete_selected, c => |p, permanent| c.delete_selected(pane(p), permanent));
+    on!(on_restore_selected, c => |p| c.restore_selected(pane(p)));
+    on!(on_dialog_accepted, c => || c.accept_dialog());
+    on!(on_dialog_cancelled, c => || c.cancel_dialog());
     on!(on_set_sort, c => |p, key, asc| c.set_sort(pane(p), key, asc));
     on!(on_set_view, c => |p, v| c.set_view(pane(p), v));
     on!(on_tab_clicked, c => |p, i| c.select_tab(pane(p), i));
@@ -343,7 +369,9 @@ fn pane_view(pane: &Pane) -> PaneView {
         tab_count: pane.len() as i32,
         state,
         error_detail: detail.into(),
+        // 回收站要并排显示“删除日期／原位置”，固定用列表呈现（标签自己的视图设置不变）
         view: match t.view() {
+            _ if t.is_recycle_bin() => ViewMode::List,
             CoreView::Grid => ViewMode::Grid,
             CoreView::List => ViewMode::List,
         },
@@ -358,6 +386,8 @@ fn pane_view(pane: &Pane) -> PaneView {
         can_back: t.can_back(),
         can_forward: t.can_forward(),
         can_up: t.can_up(),
+        recycle: t.is_recycle_bin(),
+        selected_count: t.selected_count() as i32,
     }
 }
 
@@ -633,12 +663,13 @@ impl Controller {
         match &self.loader {
             Loader::Threaded => {
                 let id = self.id;
+                let backend = self.backend.clone();
                 std::thread::spawn(move || {
                     post(
                         id,
                         Msg::Loaded {
                             tab: job.tab,
-                            loaded: job.req.run(),
+                            loaded: job.req.run_with(&*backend),
                         },
                     )
                 });
@@ -656,7 +687,7 @@ impl Controller {
         loop {
             let job = q.borrow_mut().pop_front();
             let Some(job) = job else { break };
-            self.on_loaded(job.tab, job.req.run());
+            self.on_loaded(job.tab, job.req.run_with(&*self.backend));
             n += 1;
         }
         n
@@ -673,6 +704,7 @@ impl Controller {
     fn handle(&self, msg: Msg) {
         match msg {
             Msg::Loaded { tab, loaded } => self.on_loaded(tab, loaded),
+            Msg::OpDone(done) => self.finish_op(done),
             Msg::OpenFailed { failed, message } => {
                 self.set_message(&format!("有 {failed} 个文件未能打开：{message}"))
             }
@@ -787,6 +819,9 @@ impl Controller {
     fn run_activation(&self, p: usize, a: Activation) {
         match a {
             Activation::None => {}
+            Activation::InRecycleBin => {
+                self.set_message("回收站里的项目不能直接打开；请先选中并点“还原所选项目”");
+            }
             Activation::Navigate(req) => {
                 let tab = self.ws.borrow().active_tab(p).id();
                 self.start(p, Job { tab, req });
@@ -898,7 +933,16 @@ impl Controller {
 
     // ---------- 写回界面 ----------
 
+    /// 状态栏提示（出错、被拒绝、数量上限等）：警示红。
     fn set_message(&self, m: &str) {
+        self.message_ok.set(false);
+        *self.message.borrow_mut() = m.to_string();
+        self.sync_global();
+    }
+
+    /// 状态栏提示（操作成功、进行中等普通信息）：常规灰。
+    fn set_info(&self, m: &str) {
+        self.message_ok.set(true);
         *self.message.borrow_mut() = m.to_string();
         self.sync_global();
     }
@@ -991,7 +1035,11 @@ impl Controller {
         let t = ws.active_tab(active);
         w.set_active_pane(active as i32);
         w.set_split(ws.is_split());
-        w.set_sidebar_current(self.sidebar_current_id(t.location()).into());
+        w.set_sidebar_current(if t.is_recycle_bin() {
+            "recycle-bin".into()
+        } else {
+            self.sidebar_current_id(t.location()).into()
+        });
         w.set_current_favorite(self.is_current_favorite(t.location()));
         w.set_selected_count(t.selected_count() as i32);
         let status: SharedString = if *t.state() == LoadState::Ready {
@@ -1010,6 +1058,7 @@ impl Controller {
             SharedString::default()
         };
         w.set_status_text(status);
+        w.set_status_message_ok(self.message_ok.get() && !self.message.borrow().is_empty());
         w.set_status_message(message.into());
         drop(ws);
         self.sync_watches();

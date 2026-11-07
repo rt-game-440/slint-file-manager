@@ -9,8 +9,8 @@
 | 目的 | 命令 | 产物 |
 | --- | --- | --- |
 | 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario grid-selected --out artifacts/tree.json` | JSON |
-| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`） |
 | 磁盘／收藏／目录变化同步（侧栏、收藏持久化、外部变化、后台标签、轮询模式、真实 `subst` 虚拟盘插拔；61 步） | `powershell -File scripts/harness.ps1 live [--review-dir 目录]` | `artifacts/state/live.json`；`--review-dir` 额外输出 3 级审阅截图 |
+| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`） |
 | 截图（100% 与 150%） | `powershell -File scripts/harness.ps1 snap` | `artifacts/snapshots/current/*.png` + `.json` |
 | 截图并与基线比较，输出差异图 | `powershell -File scripts/harness.ps1 compare` | `artifacts/snapshots/diff/*.diff.png`、`compare-report.json` |
 | 更新基线（人工确认后提交） | `powershell -File scripts/harness.ps1 bless` | `tests/baselines/` |
@@ -22,6 +22,7 @@
 | 真实窗口截图（补充手段） | `powershell -File scripts/capture-window.ps1 [-Open 目录]` | `artifacts/real/<时间>/` |
 | 观测框架整体验证 | `powershell -File scripts/verify-harness.ps1` | 退出码 |
 | 会话恢复（真实程序 + 临时数据目录） | `powershell -File scripts/verify-session.ps1`（已含在 `scripts/verify.ps1`） | 退出码 |
+| 真实回收站测试（看门狗：超时强杀并报告弹出的窗口标题，结束后核对回收站残留） | `powershell -File scripts/run-recycle-tests.ps1 [-Filter recycle] [-TimeoutSec 90]`；清扫历史残留加 `-Filter sweep_stale_fixtures -Ignored` | 退出码、回收站总数与夹具残留数 |
 
 `scripts/harness.ps1` 会先以 `--features harness` 构建 `harness` 程序（发布产物不含它，也不含调试信息），再转发参数。常用选项：`--size 1100x720`（默认，与产品初始窗口一致）、`--scales 1,1.5`、`--scenarios grid-selected,loading`、`--scenario loading-appear`、`--interval 16`、`--duration 600`、`--out 目录`。
 
@@ -51,6 +52,7 @@
 
 - **目录读取**用 `Loader::Manual`：导航只把请求排队，调用 `Ctx::pump()` 才在当前线程执行并应用结果。因此“加载中”状态、连续导航后过期结果被丢弃都能确定地复现。
 - **打开文件**用 `Opener::Record`：只把路径记到 `Ctx::opened`，不启动任何程序。
+- **删除与回收站**用 `Env.backend`：harness 每个窗口注入一个全新的 `StashBackend`（`%TEMP%\sfm-harness\stash\<序号>`，每次 harness 启动清空），“回收站”就是该目录，行为与规格一致（不覆盖、不建目录、失败原样保留），可用 `Ctx.stash.inject(路径, Inject::…)` 注入权限不足、不支持回收站、还原失败，`set_clock` 固定“删除时间”让截图确定。**harness 从不接触系统真实回收站**；删除用的数据在 `%TEMP%\sfm-harness\scratch\{delete,shots}`。对话框与删除状态通过 `extras.dialog`（`visible`／`title`／`danger`／`confirm`／`cancel`）、`extras.bin_items`、`extras.status_message_ok` 导出。
 - **样例目录**（`src/bin/harness/fixture.rs`）：每次 harness 启动（`review` 除外）在 `%TEMP%\sfm-harness\样例目录` 重新生成，不读取用户真实目录。内容：文件夹“照片”（12 张 WebP 占位）、“空文件夹”、“无权限”（用 `icacls` 拒绝 Everyone 列目录，只作用于本夹具，下次生成前 `/reset`）、四层长名称子目录；根目录 12 张图片、中文／自然排序名（报告2、报告10）、长中文名 PDF、长英文名 TXT、各类扩展名、一个隐藏文件（不应显示）。名称、大小、修改时间全部固定，内容是占位字节。
 - 路径含用户名、日期按本地时区显示，所以样例目录绝对路径与时区写入截图指纹；换机器得到 `env-mismatch`，属正常。
 - 两个 harness 进程不要同时运行（会同时重建样例目录）。
@@ -69,9 +71,13 @@
 
 输入模拟：`Ctx::click`（`mock_single_click`，含 50ms 模拟时间）、`Ctx::ctrl_click`／`shift_click`（先发送修饰键按下事件，指针事件的 modifiers 来自窗口的修饰键状态）、`Ctx::double_click`（两次单击）、`Ctx::click_at`／`click_right_edge`（点元素中心以外的位置，如地址栏右侧空白）、`Ctx::key`／`special(Key, 修饰键)`、`Ctx::type_text`（向焦点文本框逐字输入）、`Ctx::enter_address`（调用地址栏的无障碍默认动作进入编辑再输入，窄面板里面包屑占满地址栏也能用；路径写绝对路径）、`Ctx::pump`（完成排队的目录读取）、`ElementHandle::scroll`。
 
+**对话框与回收站的标识：**应用内对话框是 `groupbox` “对话框”（标题 `text` “对话框标题”、正文“对话框内容”，按钮的 `accessible-label` 即按钮文字：取消／移到回收站／永久删除／知道了）。对话框遮罩覆盖整个窗口，工具栏也有同名的“永久删除”，查找对话框按钮时取位于“对话框标题”下方的那个（见 `delete.rs` 的 `dlg_btn`）。回收站视图有 `groupbox` “回收站提示”和按钮“还原所选项目”；工具栏按钮“删除”“永久删除”，侧栏按钮“回收站”（选中态用 `accessible-checked`）。
+
 **面板限定查找：**双栏时左右面板有同名元素（两个“后退”、两套文件项）。`scenarios.rs` 的 `find`／`find_all` 按“元素中心是否落在该面板（`左面板`／`右面板` groupbox）矩形内”过滤。隐藏面板不在元素树里，状态用 `extras.panes` 读。窄面板网格里屏幕外的项点不到，用最上面一行的项。
 
-完整流程见 `src/bin/harness/scenarios.rs` 的 `interaction`（单栏）、`src/bin/harness/dual.rs` 的 `dual`（双栏独立标签：默认等宽、各面板新建／关闭／切换标签、前进后退归属、单栏往返不清另一侧、位置不可用、快速切换与过期结果）与 `restore`（写会话 → 重启 → 比对两侧标签、位置、排序、视图；损坏／新版本会话降级）。
+删除、回收站、还原的完整流程见 `src/bin/harness/delete.rs` 的 `delete`（26 步：取消、Esc、危险确认 Enter 无效、多选、回收站浏览、单项与多项还原、冲突循环、失败注入的部分成功、不支持回收站不退化、还原失败、原目录消失）。
+
+其余流程见 `src/bin/harness/scenarios.rs` 的 `interaction`（单栏）、`src/bin/harness/dual.rs` 的 `dual`（双栏独立标签：默认等宽、各面板新建／关闭／切换标签、前进后退归属、单栏往返不清另一侧、位置不可用、快速切换与过期结果）与 `restore`（写会话 → 重启 → 比对两侧标签、位置、排序、视图；损坏／新版本会话降级）。
 
 ## 截图、基线与环境指纹
 
@@ -101,6 +107,7 @@
 
 - **Issue #6（双栏独立标签）**：所有原有单栏场景的基线重新 `bless`。变化只发生在两处：顶部多了标签带（含当前标签与“新建标签”按钮）与面板顶边的活动蓝线；工具栏的“双栏”按钮由禁用态变为可用（单栏外观下为未选中态）。内容区与列表／网格像素未变（用旧基线逐像素比较确认差异只落在这两个区域）。同时新增 5 个双栏场景基线（见“新增场景”）。
 - **Issue #7（磁盘、收藏与目录变化）**：所有场景基线重新 `bless`。侧栏由静态占位改为
+- **Issue #8（删除、回收站、还原）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏与侧栏：工具栏在视图按钮之后新增“删除”“永久删除”两个图标按钮和一条分隔线（无选择时为灰色），“双栏”按钮与搜索框因此右移，搜索框在空间不足时先收窄（最小 48px，避免 150% 文字缩放下把窗口撑宽）；侧栏“回收站”由禁用态（灰字）变为可用。内容区、列表与网格像素未变（用旧基线比较，差异图只落在工具栏和侧栏“回收站”行）。同时新增 7 个场景基线（见“新增场景”）。
 
 ## 动画逐帧采集
 
@@ -142,6 +149,7 @@
 - 动画场景：在 `ANIM` 追加 `AnimScenario`（`start` 触发动画）。
 - 双栏相关静态场景（Issue #6，基线 100%／150%）：`dual-default`（等宽双栏，左面板活动）、`dual-tabs`（两侧各多个标签，右面板活动）、`dual-unavailable-tab`（右面板含位置不可用标签）、`single-right`（单栏显示右面板）、`dual-text-scale-150`（双栏 + 文字缩放 150%，右面板活动）。双栏场景在 `Scenario` 里用 `split: true`；原有场景保持 `split: false`（单栏外观）。
 - 活动面板的截图审阅：`review` 的 REVIEW.md 已包含上述场景及“预期效果”；对比 `dual-default`（左活动）与 `dual-tabs`／`dual-text-scale-150`（右活动）即可看到顶边蓝线与标签底色的切换。
+- 删除与回收站场景（Issue #8，基线 100%／150%，后端为临时目录“回收站”）：`delete-confirm`（多选后 Delete 的移到回收站确认）、`delete-confirm-permanent`（Shift+Delete 的红色危险确认）、`recycle-bin`（三个不同删除时间的项目，列为名称／删除日期／原位置／大小，侧栏选中，提示条与“还原所选项目”）、`recycle-bin-empty`、`delete-partial`（注入权限不足：部分成功说明）、`delete-unsupported`（不支持回收站：只给说明）、`restore-conflict`（还原遇同名冲突的部分成功）。
 - 不要为尚不存在的界面预建抽象；界面出现后再在这些入口上扩展。
 
 ## 已知限制与排错

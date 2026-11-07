@@ -11,6 +11,8 @@ export component IconButton inherits Rectangle {
     in property <bool> checkable: false;
     in property <bool> checked: false;
     in property <length> icon-size: Theme.icon-s;
+    // 危险操作（永久删除）：可用时图标为警示红
+    in property <bool> danger: false;
     callback clicked();
 
     width: Theme.control-h + 4px;
@@ -34,7 +36,7 @@ export component IconButton inherits Rectangle {
         y: (parent.height - self.height) / 2;
         name: root.icon;
         size: root.icon-size;
-        tint: !root.enabled ? Theme.text-disabled : root.checked ? Theme.accent : Theme.text;
+        tint: !root.enabled ? Theme.text-disabled : root.checked ? Theme.accent : root.danger ? Theme.danger : Theme.text;
     }
 
     ta := TouchArea {
@@ -48,6 +50,7 @@ export component IconButton inherits Rectangle {
 // 带边框的文字按钮（状态面板中的“重试”等）。
 export component TextButton inherits Rectangle {
     in property <string> text;
+    in property <bool> enabled: true;
     callback clicked();
 
     height: Theme.control-h;
@@ -55,22 +58,26 @@ export component TextButton inherits Rectangle {
     border-radius: 6px;
     border-width: 1px;
     border-color: Theme.divider-strong;
-    background: ta.pressed ? Theme.pressed : ta.has-hover ? Theme.hover-soft : Theme.surface;
+    background: !root.enabled ? Theme.surface : ta.pressed ? Theme.pressed : ta.has-hover ? Theme.hover-soft : Theme.surface;
     accessible-role: button;
     accessible-label: root.text;
+    accessible-enabled: root.enabled;
     accessible-action-default => {
-        root.clicked();
+        if root.enabled {
+            root.clicked();
+        }
     }
 
     label := Text {
         text: root.text;
-        color: Theme.text;
+        color: root.enabled ? Theme.text : Theme.text-disabled;
         font-size: Theme.font;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 
     ta := TouchArea {
+        enabled: root.enabled;
         clicked => {
             root.clicked();
         }

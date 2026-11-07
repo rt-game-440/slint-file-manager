@@ -221,6 +221,129 @@ fn single_right(c: &Ctx) -> Res<()> {
     Ok(())
 }
 
+/// 删除与回收站截图用的草稿目录（固定名称、大小、修改时间；位于样例目录之外）。
+fn shots_dir() -> Res<std::path::PathBuf> {
+    let d = fixture::fresh_dir(&fixture::scratch_dir("shots"))?;
+    for (i, (n, size)) in [
+        ("季度报告.docx", 184_320u64),
+        ("会议纪要.txt", 2_048),
+        ("旧照片.webp", 912_384),
+        ("备份压缩.zip", 5_242_880),
+    ]
+    .iter()
+    .enumerate()
+    {
+        fixture::file(&d, n, *size, fixture::time(10 + i as u64))?;
+    }
+    let sub = d.join("项目资料");
+    std::fs::create_dir(&sub)?;
+    fixture::file(&sub, "草稿.txt", 100, fixture::time(5))?;
+    fixture::dir_time(&sub, fixture::time(6))?;
+    Ok(d)
+}
+
+fn open_shots(c: &Ctx) -> Res<std::path::PathBuf> {
+    let d = shots_dir()?;
+    c.enter_address(&d.to_string_lossy())?;
+    c.pump();
+    Ok(d)
+}
+
+fn pick(c: &Ctx, names: &[&str]) -> Res<()> {
+    for (i, n) in names.iter().enumerate() {
+        let e = c.item(n)?;
+        if i == 0 {
+            c.click(&e);
+        } else {
+            c.ctrl_click(&e);
+        }
+    }
+    Ok(())
+}
+
+/// 选中后按 Delete 并按 Enter 确认（Manual 加载下操作同步完成）。
+fn delete_now(c: &Ctx, names: &[&str]) -> Res<()> {
+    pick(c, names)?;
+    c.special(Key::Delete, &[]);
+    c.special(Key::Return, &[]);
+    c.pump();
+    Ok(())
+}
+
+fn open_bin(c: &Ctx) -> Res<()> {
+    c.click(&c.button("回收站")?);
+    c.pump();
+    Ok(())
+}
+
+fn delete_confirm(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    pick(c, &["季度报告.docx", "会议纪要.txt"])?;
+    c.special(Key::Delete, &[]);
+    c.advance(16);
+    Ok(())
+}
+
+fn delete_confirm_permanent(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    pick(c, &["备份压缩.zip"])?;
+    c.special(Key::Delete, &[Key::Shift]);
+    c.advance(16);
+    Ok(())
+}
+
+/// 三次删除分别记为不同的时间，然后进入回收站并选中一项。
+fn recycle_bin_view(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    c.stash.set_clock(fixture::time(100));
+    delete_now(c, &["季度报告.docx"])?;
+    c.stash.set_clock(fixture::time(130));
+    delete_now(c, &["项目资料"])?;
+    c.stash.set_clock(fixture::time(160));
+    delete_now(c, &["旧照片.webp"])?;
+    open_bin(c)?;
+    c.click(&c.item("项目资料")?);
+    Ok(())
+}
+
+fn recycle_bin_empty(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    open_bin(c)
+}
+
+fn delete_partial(c: &Ctx) -> Res<()> {
+    use slint_file_manager::fileops::{FailKind, Inject};
+    let d = open_shots(c)?;
+    c.stash.inject(
+        d.join("会议纪要.txt"),
+        Inject::Delete(FailKind::AccessDenied),
+    );
+    delete_now(c, &["会议纪要.txt", "旧照片.webp"])
+}
+
+fn delete_unsupported(c: &Ctx) -> Res<()> {
+    use slint_file_manager::fileops::Inject;
+    let d = open_shots(c)?;
+    c.stash.inject(d.join("备份压缩.zip"), Inject::Unsupported);
+    pick(c, &["备份压缩.zip"])?;
+    c.special(Key::Delete, &[]);
+    c.advance(16);
+    Ok(())
+}
+
+fn restore_conflict(c: &Ctx) -> Res<()> {
+    let d = open_shots(c)?;
+    c.stash.set_clock(fixture::time(100));
+    delete_now(c, &["季度报告.docx", "会议纪要.txt"])?;
+    // 原位置被同名新文件占用，再还原两项：一项成功、一项冲突
+    fixture::file(&d, "会议纪要.txt", 77, fixture::time(200))?;
+    open_bin(c)?;
+    pick(c, &["季度报告.docx", "会议纪要.txt"])?;
+    c.click(&c.button("还原所选项目")?);
+    c.pump();
+    Ok(())
+}
+
 const fn s(
     name: &'static str,
     content: &'static str,
@@ -383,6 +506,48 @@ pub const STATIC: &[Scenario] = &[
         split: true,
         setup: dual_default_right,
     },
+    s(
+        "delete-confirm",
+        "选中“季度报告.docx”和“会议纪要.txt”后按 Delete，弹出移到回收站的确认",
+        "窗口中央偏上出现白色圆角对话框，背后内容区被淡灰遮罩压住；标题“将 2 项移到回收站？”为黑色；正文说明“项目会放进回收站，之后可以在回收站里还原”并列出两个文件名；右下为“取消”（描边）与蓝色主按钮“移到回收站”",
+        delete_confirm,
+    ),
+    s(
+        "delete-confirm-permanent",
+        "选中“备份压缩.zip”后按 Shift+Delete，弹出永久删除确认",
+        "危险样式：标题“永久删除“备份压缩.zip”？”为红色；正文说明直接删除、不进回收站、无法恢复；主按钮是红色“永久删除”，“取消”为描边按钮（与移到回收站的蓝色确认明显不同）",
+        delete_confirm_permanent,
+    ),
+    s(
+        "recycle-bin",
+        "三个项目在不同时间被删除后，从侧栏进入回收站并选中“项目资料”",
+        "侧栏“回收站”为蓝色选中态；内容区顶部有米黄色提示条“回收站：已删除项目的暂存位置，不是普通文件夹…”和“还原所选项目”按钮；列表列为名称／删除日期／原位置／类型／大小，原位置显示草稿目录完整路径；工具栏“删除”“永久删除”为灰色不可用；地址栏显示“回收站”；后退可用、上一级不可用",
+        recycle_bin_view,
+    ),
+    s(
+        "recycle-bin-empty",
+        "进入没有任何项目的回收站",
+        "仍显示米黄色提示条，“还原所选项目”灰色；内容区居中显示“回收站是空的”，不显示重试按钮",
+        recycle_bin_empty,
+    ),
+    s(
+        "delete-partial",
+        "批量删除“会议纪要.txt”（注入权限不足）和“旧照片.webp”，一项成功一项失败",
+        "对话框标题“部分项目没有删除”，正文写明已移到回收站 1 项，未能移到回收站 1 项，点名“会议纪要.txt：没有权限”并说明保持原样；只有蓝色“知道了”；背后列表仍显示“会议纪要.txt”；状态栏为红色“部分完成：1 项已移到回收站，1 项未能移到回收站”",
+        delete_partial,
+    ),
+    s(
+        "delete-unsupported",
+        "对不支持回收站的位置（注入）按 Delete",
+        "只有说明对话框“无法移到回收站”，正文写明没有删除任何项目并指出永久删除（Shift+Delete）无法恢复；只有“知道了”；文件仍在列表中",
+        delete_unsupported,
+    ),
+    s(
+        "restore-conflict",
+        "回收站里选中两项还原：“季度报告.docx”成功，“会议纪要.txt”因原位置已有同名文件冲突",
+        "对话框标题“部分项目没有还原”，写明“会议纪要.txt：原位置已有同名项目，未覆盖”；回收站视图中只剩“会议纪要.txt”；状态栏红色“部分完成：1 项已还原到原位置，1 项未能还原”",
+        restore_conflict,
+    ),
 ];
 
 /// 动画场景：在完成首次加载的窗口上，`start` 触发动画。

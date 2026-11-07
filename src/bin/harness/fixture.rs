@@ -43,7 +43,7 @@ const FILES: &[(&str, u64)] = &[
 /// 2026-03-14 01:30:00 UTC
 const BASE_SECS: u64 = 1_773_451_800;
 
-fn time(hours: u64) -> SystemTime {
+pub fn time(hours: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(BASE_SECS + hours * 3600)
 }
 
@@ -85,7 +85,7 @@ pub fn fresh_dir(d: &Path) -> Res<PathBuf> {
     Ok(d.to_path_buf())
 }
 
-fn file(dir: &Path, name: &str, size: u64, t: SystemTime) -> Res<()> {
+pub fn file(dir: &Path, name: &str, size: u64, t: SystemTime) -> Res<()> {
     let f = File::create(dir.join(name))?;
     f.set_len(size)?;
     f.set_modified(t)?;
@@ -93,7 +93,7 @@ fn file(dir: &Path, name: &str, size: u64, t: SystemTime) -> Res<()> {
 }
 
 /// 目录的修改时间需在其子项创建完成后设置；打开目录需要 FILE_FLAG_BACKUP_SEMANTICS。
-fn dir_time(dir: &Path, t: SystemTime) -> Res<()> {
+pub fn dir_time(dir: &Path, t: SystemTime) -> Res<()> {
     const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     let f = OpenOptions::new()
@@ -116,7 +116,7 @@ fn icacls(args: &[&str]) -> Res<()> {
 pub fn ensure() -> Res<PathBuf> {
     let root = root();
     // 上次运行遗留的会话与草稿目录
-    for d in ["sessions", "scratch"] {
+    for d in ["sessions", "scratch", "stash"] {
         let _ = fs::remove_dir_all(parent().join(d));
     }
     let denied = root.join(DENIED);

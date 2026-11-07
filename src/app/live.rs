@@ -809,6 +809,13 @@ impl Controller {
             if let Some(h) = self.home.clone() {
                 self.navigate_path(p, h);
             }
+        } else if id == "recycle-bin" {
+            // 回收站是外壳虚拟位置：已在其中时只刷新，否则进入
+            if self.ws.borrow().active_tab(p).is_recycle_bin() {
+                self.refresh(p);
+            } else {
+                self.navigate_path(p, crate::browse::location::recycle_bin_path());
+            }
         } else if let Some(letter) = id.strip_prefix("drive:") {
             let drive = self
                 .live

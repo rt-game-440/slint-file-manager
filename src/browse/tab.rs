@@ -10,7 +10,9 @@
 
 use super::entry::{Entry, ListError, ListErrorKind, list_dir};
 use super::history::History;
+use super::location::is_recycle_bin;
 use super::sort::{SortSpec, sort_by};
+use crate::fileops::{Backend, BinItem};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -61,8 +63,19 @@ pub struct Loaded {
 
 impl LoadRequest {
     /// 读取并按请求时的排序方式排好（在工作线程执行，减少界面线程工作量）。
+    /// 回收站位置走外壳命名空间（系统后端），其余位置按目录读取。
     pub fn run(&self) -> Loaded {
-        let result = list_dir(&self.path).map(|mut v| {
+        self.run_with(&crate::fileops::SystemBackend)
+    }
+
+    /// 同 [`LoadRequest::run`]，回收站内容由 `backend` 提供（测试与 harness 注入用）。
+    pub fn run_with(&self, backend: &dyn Backend) -> Loaded {
+        let listed = if is_recycle_bin(&self.path) {
+            list_bin(backend)
+        } else {
+            list_dir(&self.path)
+        };
+        let result = listed.map(|mut v| {
             sort_by(&mut v, self.sort, |e| e);
             v
         });
@@ -74,11 +87,25 @@ impl LoadRequest {
     }
 }
 
+/// 回收站内容转成条目（保留外壳标识与原位置，供恢复使用）。
+fn list_bin(backend: &dyn Backend) -> Result<Vec<Entry>, ListError> {
+    backend
+        .list_bin()
+        .map(|items| items.into_iter().map(Entry::from_bin).collect())
+        .map_err(|message| ListError {
+            kind: ListErrorKind::Other,
+            os_code: None,
+            message,
+        })
+}
+
 /// 激活（双击、回车）的结果。
 #[derive(Debug)]
 pub enum Activation {
     None,
     Navigate(LoadRequest),
+    /// 回收站里的项目不能直接打开或进入：先还原到原位置。
+    InRecycleBin,
     /// 交给默认应用打开的文件；`truncated` 为超过上限未打开的数量。
     Open {
         paths: Vec<PathBuf>,
@@ -316,7 +343,29 @@ impl Tab {
         self.history.can_forward()
     }
     pub fn can_up(&self) -> bool {
-        self.location.as_deref().and_then(Path::parent).is_some()
+        !self.is_recycle_bin() && self.location.as_deref().and_then(Path::parent).is_some()
+    }
+    /// 当前位置是回收站（虚拟位置，条目来自外壳而不是磁盘目录）。
+    pub fn is_recycle_bin(&self) -> bool {
+        self.location.as_deref().is_some_and(is_recycle_bin)
+    }
+    /// 已选项目的完整路径（回收站里的项目没有当前路径，返回空）。
+    pub fn selected_paths(&self) -> Vec<PathBuf> {
+        if self.is_recycle_bin() {
+            return Vec::new();
+        }
+        (0..self.rows.len())
+            .filter(|&i| self.rows[i].selected)
+            .filter_map(|i| self.path_of(i))
+            .collect()
+    }
+    /// 已选的回收站项目（非回收站视图返回空）。
+    pub fn selected_bin_items(&self) -> Vec<BinItem> {
+        self.rows
+            .iter()
+            .filter(|r| r.selected)
+            .filter_map(|r| r.entry.bin.as_deref().cloned())
+            .collect()
     }
     /// 已选文件的总字节数（不含文件夹）。
     pub fn selected_size(&self) -> u64 {
@@ -333,8 +382,11 @@ impl Tab {
             .map(|r| r.entry.name.as_str())
             .collect()
     }
-    /// 第 `i` 行的完整路径。
+    /// 第 `i` 行的完整路径；回收站里的项目没有当前路径。
     pub fn path_of(&self, i: usize) -> Option<PathBuf> {
+        if self.is_recycle_bin() {
+            return None;
+        }
         Some(
             self.location
                 .as_ref()?
@@ -375,6 +427,9 @@ impl Tab {
 
     /// 返回上级，并选中来源文件夹。
     pub fn up(&mut self) -> Option<LoadRequest> {
+        if self.is_recycle_bin() {
+            return None;
+        }
         let cur = self.location.clone()?;
         let parent = cur.parent()?.to_path_buf();
         self.history.visit(cur.clone());
@@ -680,6 +735,9 @@ impl Tab {
         let Some(row) = self.rows.get(i) else {
             return Activation::None;
         };
+        if self.is_recycle_bin() {
+            return Activation::InRecycleBin;
+        }
         let path = self.path_of(i).expect("有行就有位置");
         if row.entry.is_dir {
             Activation::Navigate(self.navigate(path))
@@ -694,6 +752,13 @@ impl Tab {
     /// 回车：有选中文件时打开全部选中文件（最多 [`MAX_OPEN`] 个）；只选了文件夹时进入第一个；
     /// 没有选择时作用于光标项。
     pub fn activate_selection(&mut self) -> Activation {
+        if self.is_recycle_bin() {
+            return if self.rows.is_empty() {
+                Activation::None
+            } else {
+                Activation::InRecycleBin
+            };
+        }
         let selected: Vec<usize> = (0..self.rows.len())
             .filter(|&i| self.rows[i].selected)
             .collect();

@@ -9,6 +9,7 @@ use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint_file_manager::app::{self, Controller, DriveSource, Env, LiveEnv, Loader, Opener};
 use slint_file_manager::browse::places::Drive;
 use slint_file_manager::browse::session::SessionStore;
+use slint_file_manager::fileops::StashBackend;
 use slint_file_manager::{MainWindow, Theme};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -17,6 +18,8 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 pub type Res<T> = Result<T, Box<dyn Error>>;
@@ -111,8 +114,13 @@ pub struct Ctx {
     pub opened: Rc<RefCell<Vec<PathBuf>>>,
     /// 注入的磁盘列表（`LiveEnv` 使用 `DriveSource::Fixed` 时），修改它即模拟 U 盘插拔
     pub drives: Option<Rc<RefCell<Vec<Drive>>>>,
+    /// 临时目录“回收站”：删除、回收站浏览与还原都走它，绝不触碰系统真实回收站
+    pub stash: Arc<StashBackend>,
     t0: u64,
 }
+
+/// 每个窗口一个全新的暂存目录（`%TEMP%\sfm-harness\stash\<序号>`）。
+static STASH_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// 窗口选项：起始目录、文字缩放、是否立即完成首次加载、双栏与会话目录。
 pub struct Opts {
@@ -162,6 +170,10 @@ impl Ctx {
             }) => Some(h.clone()),
             _ => None,
         };
+        let n = STASH_SEQ.fetch_add(1, Ordering::SeqCst);
+        let stash = StashBackend::new(crate::fixture::fresh_dir(
+            &crate::fixture::parent().join("stash").join(n.to_string()),
+        )?);
         let ctl = app::wire(
             &win,
             Env {
@@ -177,6 +189,7 @@ impl Ctx {
                 store: o.session.map(SessionStore::at),
                 fresh_split: o.split,
                 live: o.live.unwrap_or_else(LiveEnv::inert),
+                backend: stash.clone(),
             },
         );
         win.show()?;
@@ -200,6 +213,7 @@ impl Ctx {
             ctl,
             opened,
             drives,
+            stash,
             t0: get_mocked_time(),
         };
         if o.load {

@@ -8,7 +8,7 @@
 //! 本模块不接触界面与线程。会触发读取的操作返回 [`Job`]，由调用方执行。
 
 use super::session::{PaneSeed, SessionState};
-use super::tab::{LoadRequest, Tab, TabId, TabSeed};
+use super::tab::{LoadRequest, LoadState, Tab, TabId, TabSeed};
 use std::path::{Path, PathBuf};
 
 /// 每个面板最多的标签数（防止误操作或损坏的会话文件造成大量标签）。
@@ -243,6 +243,26 @@ impl Workspace {
         self.panes[p].tabs.push(t);
         self.panes[p].active = self.panes[p].tabs.len() - 1;
         Ok(Job { tab: id, req })
+    }
+
+    /// 本应用的文件操作（删除、还原）完成后：重新读取所有已读取过的、位置满足 `affected` 的标签
+    ///（含后台标签与隐藏面板）。同一标签的旧请求结果会因序号过期被丢弃，所以重复触发不会产生重复条目；
+    /// 选择保留，失败项因仍在原位而继续显示。尚未读取的标签（会话恢复后未激活）等激活时再读。
+    pub fn refresh_where(&mut self, affected: impl Fn(&Path) -> bool) -> Vec<Job> {
+        let mut jobs = Vec::new();
+        for pane in &mut self.panes {
+            for t in &mut pane.tabs {
+                if matches!(t.state(), LoadState::Idle) {
+                    continue;
+                }
+                if t.location().is_some_and(&affected)
+                    && let Some(req) = t.refresh()
+                {
+                    jobs.push(Job { tab: t.id(), req });
+                }
+            }
+        }
+        jobs
     }
 
     /// 已打开该路径的标签（先左后右）。路径比较不区分大小写与末尾分隔符。

@@ -38,7 +38,11 @@ pub fn to_item(r: &Row) -> FileItem {
     let e = &r.entry;
     FileItem {
         name: e.name.as_str().into(),
-        kind_text: format::kind_text(e).into(),
+        // 回收站里这一列是“原位置”（列标题随之变为“原位置”），普通目录里是类型
+        kind_text: match &e.bin {
+            Some(b) => b.original_dir.as_str().into(),
+            None => format::kind_text(e).into(),
+        },
         size_text: if e.is_dir {
             Default::default()
         } else {

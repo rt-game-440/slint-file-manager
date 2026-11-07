@@ -240,6 +240,52 @@ component PathBar inherits Rectangle {
     }
 }
 
+// 回收站提示条：明确这不是普通文件夹，并提供“还原所选项目”。不提供清空回收站。
+component RecycleBanner inherits Rectangle {
+    in property <int> selected-count;
+    callback restore();
+
+    background: #fff6e5;
+    accessible-role: groupbox;
+    accessible-label: "回收站提示";
+    accessible-description: "这里是已删除项目的暂存位置，不是普通文件夹";
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 10px;
+
+        Rectangle {
+            width: Theme.icon-s;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                name: "trash";
+                tint: #a8681a;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: "回收站：已删除项目的暂存位置，不是普通文件夹。选中项目后可还原到原位置。";
+            color: #7a4a10;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            restore-button := TextButton {
+                text: "还原所选项目";
+                enabled: root.selected-count > 0;
+                clicked => {
+                    root.restore();
+                }
+            }
+        }
+    }
+}
+
 // 空目录与错误状态的说明面板
 component StatePanel inherits Rectangle {
     in property <ContentState> state;
@@ -248,7 +294,8 @@ component StatePanel inherits Rectangle {
     callback retry();
     callback open-location();
 
-    property <string> title: root.state == ContentState.empty ? "此文件夹为空"
+    in property <bool> recycle: false;
+    property <string> title: root.state == ContentState.empty ? (root.recycle ? "回收站是空的" : "此文件夹为空")
         : root.state == ContentState.not-found ? "找不到这个位置"
         : root.state == ContentState.access-denied ? "没有权限访问此文件夹"
         : root.state == ContentState.not-a-folder ? "这是文件，不是文件夹"
@@ -541,6 +588,7 @@ export component BrowserPane inherits Rectangle {
     callback toggle-cursor(int);
     callback set-sort(int, SortKey, bool);
     callback open-location(int);
+    callback restore-selected(int);
     callback tab-clicked(int, int);
     callback tab-close(int, int);
     callback tab-new(int);
@@ -626,7 +674,13 @@ export component BrowserPane inherits Rectangle {
             height: 1px;
             background: Theme.divider;
         }
-
+        if root.v.recycle: recycle-banner := RecycleBanner {
+            height: Theme.control-h + 14px;
+            selected-count: root.v.selected-count;
+            restore => {
+                root.restore-selected(root.pane-id);
+            }
+        }
         content := FocusScope {
             vertical-stretch: 1;
             key-pressed(e) => {
@@ -706,6 +760,7 @@ export component BrowserPane inherits Rectangle {
                     pane-focused: content.has-focus;
                     sort-key: root.v.sort-key;
                     sort-ascending: root.v.sort-ascending;
+                    recycle: root.v.recycle;
                     item-pointer(i, ctrl, shift) => {
                         content.focus();
                         root.item-pointer(root.pane-id, i, ctrl, shift);
@@ -725,6 +780,7 @@ export component BrowserPane inherits Rectangle {
                 state-panel := StatePanel {
                     visible: root.v.state != ContentState.ready && root.v.state != ContentState.loading;
                     state: root.v.state;
+                    recycle: root.v.recycle;
                     location-text: root.v.location-text;
                     error-detail: root.v.error-detail;
                     retry => {

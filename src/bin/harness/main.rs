@@ -4,6 +4,7 @@
 
 mod compare;
 mod ctx;
+mod delete;
 mod dual;
 mod dump;
 mod fixture;
@@ -124,16 +125,18 @@ fn cmd_run(args: &Args) -> Res<i32> {
         drop(c);
         let (dual, f2) = dual::dual(size, scale).map_err(|e| format!("[双栏] {e}"))?;
         let (restore, f3) = dual::restore(size, scale).map_err(|e| format!("[恢复] {e}"))?;
+        let (del, f4) = delete::delete(size, scale).map_err(|e| format!("[删除] {e}"))?;
         fails.extend(f1.into_iter().map(|f| format!("[单栏] {f}")));
         fails.extend(f2.into_iter().map(|f| format!("[双栏] {f}")));
         fails.extend(f3.into_iter().map(|f| format!("[恢复] {f}")));
-        runs.push(json!({"single": single, "dual": dual, "restore": restore}));
+        fails.extend(f4.into_iter().map(|f| format!("[删除] {f}")));
+        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del}));
     }
     let consistent = runs.windows(2).all(|w| w[0] == w[1]);
     if !consistent {
         fails.push("重复运行的状态记录不一致".into());
         // 指出第一处不同的步骤与字段，便于定位不确定性来源
-        'outer: for sec in ["single", "dual", "restore"] {
+        'outer: for sec in ["single", "dual", "restore", "delete"] {
             let (a, b) = (&runs[0][sec], &runs[1][sec]);
             for (x, y) in a
                 .as_array()
@@ -161,10 +164,11 @@ fn cmd_run(args: &Args) -> Res<i32> {
                 "failures": fails, "steps": runs[0]}),
     )?;
     println!(
-        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步，重复 {repeat} 次，{}；输出 {}",
+        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步，重复 {repeat} 次，{}；输出 {}",
         runs[0]["single"].as_array().map_or(0, |a| a.len()),
         runs[0]["dual"].as_array().map_or(0, |a| a.len()),
         runs[0]["restore"].as_array().map_or(0, |a| a.len()),
+        runs[0]["delete"].as_array().map_or(0, |a| a.len()),
         if fails.is_empty() {
             "全部断言通过且结果一致"
         } else {

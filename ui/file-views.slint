@@ -292,13 +292,15 @@ export component FileList inherits Rectangle {
     in property <bool> pane-focused;
     in property <SortKey> sort-key;
     in property <bool> sort-ascending;
+    // 回收站：“修改日期”列是删除日期，“类型”列是原位置（更宽）
+    in property <bool> recycle: false;
     callback item-pointer(int, bool, bool);
     callback item-activate(int);
     callback background-pointer(bool);
     callback sort-clicked(SortKey);
 
     property <length> date-w: 140px * Theme.text-scale;
-    property <length> kind-w: 100px * Theme.text-scale;
+    property <length> kind-w: (root.recycle ? 220px : 100px) * Theme.text-scale;
     property <length> size-w: 84px * Theme.text-scale;
     property <length> header-h: Theme.row-h;
     out property <int> page-rows: max(1, floor((root.height - root.header-h) / Theme.row-h));
@@ -338,7 +340,7 @@ export component FileList inherits Rectangle {
 
             HeaderCell {
                 width: root.date-w;
-                text: "修改日期";
+                text: root.recycle ? "删除日期" : "修改日期";
                 key: SortKey.modified;
                 sort-key: root.sort-key;
                 sort-ascending: root.sort-ascending;
@@ -349,7 +351,7 @@ export component FileList inherits Rectangle {
 
             HeaderCell {
                 width: root.kind-w;
-                text: "类型";
+                text: root.recycle ? "原位置" : "类型";
                 key: SortKey.kind;
                 sort-key: root.sort-key;
                 sort-ascending: root.sort-ascending;
