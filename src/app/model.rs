@@ -81,6 +81,19 @@ pub fn to_item(r: &Row) -> FileItem {
         editing: false,
         cut: false,
         drop_target: false,
+        cloud: badge(e.cloud),
+    }
+}
+
+/// 云盘状态 → 界面标记。
+pub fn badge(c: crate::cloud::CloudState) -> crate::CloudBadge {
+    use crate::cloud::CloudState as S;
+    match c {
+        S::None => crate::CloudBadge::None,
+        S::OnlineOnly => crate::CloudBadge::Online,
+        S::OnlineUnavailable => crate::CloudBadge::Unavailable,
+        S::Local => crate::CloudBadge::Local,
+        S::AlwaysKeep => crate::CloudBadge::Pinned,
     }
 }
 

@@ -53,6 +53,8 @@ pub struct OpDone {
     pub rename_after: bool,
     /// 剪贴板“剪切”粘贴全部成功时，粘贴所用的剪贴板序号（用来清空剪贴板）。
     pub clear_clip: Option<u32>,
+    /// 追加在结果汇报后的说明（复制含仅在线文件时：哪些已被云盘客户端下载，Issue #14）。
+    pub note: Option<String>,
 }
 
 impl OpDone {
@@ -64,8 +66,38 @@ impl OpDone {
             focus: None,
             rename_after: false,
             clear_clip: None,
+            note: None,
         }
     }
+}
+
+/// 这次传输会读取源文件内容吗：复制一定会；移动在同一磁盘上只是改名（不读内容），跨磁盘才会先复制。
+fn reads_content(mode: Mode, src: &Path, dest_dir: &Path) -> bool {
+    fn drive(p: &Path) -> Option<char> {
+        let s = p.to_string_lossy();
+        let mut c = s.chars();
+        let l = c.next()?;
+        (c.next() == Some(':')).then(|| l.to_ascii_uppercase())
+    }
+    match mode {
+        Mode::Copy => true,
+        Mode::Move => drive(src) != drive(dest_dir),
+    }
+}
+
+/// 传输里会被读取内容的仅在线文件统计（只读枚举属性，不打开文件）。
+fn online_in_plan(
+    plan: &xfer::Plan,
+    max_entries: usize,
+    budget: std::time::Duration,
+) -> crate::cloud::OnlineCount {
+    let srcs: Vec<PathBuf> = plan
+        .jobs
+        .iter()
+        .filter(|j| reads_content(plan.mode, &j.src, &plan.dest_dir))
+        .map(|j| j.src.clone())
+        .collect();
+    crate::cloud::count_online_only(&srcs, max_entries, budget)
 }
 
 pub(super) enum Task {
@@ -120,6 +152,8 @@ impl Task {
                     .first()
                     .and_then(|j| j.dest.file_name())
                     .map(OsString::from);
+                // 传输前统计：会被读取内容的仅在线文件（读取源文件会让云盘客户端下载，要让用户知道）
+                let online = online_in_plan(&plan, 20_000, std::time::Duration::from_millis(1500));
                 let report = xfer::run(backend, plan);
                 let clear_clip = match origin {
                     Origin::Clipboard(seq)
@@ -137,6 +171,7 @@ impl Task {
                     _ => None,
                 };
                 done.clear_clip = clear_clip;
+                done.note = online.any().then(|| online.done_text());
                 done
             }
             Task::Create { path, kind, pane } => {
@@ -187,7 +222,13 @@ impl Task {
         };
         match self {
             Task::Transfer { plan, .. } => {
-                return format!("正在{} {n} 项…", plan.mode.verb());
+                // 进度提示里先说明会触发下载（快速统计，上限小，不阻塞界面）
+                let online = online_in_plan(plan, 500, std::time::Duration::from_millis(30));
+                return if online.any() {
+                    format!("正在{} {n} 项…{}", plan.mode.verb(), online.hint())
+                } else {
+                    format!("正在{} {n} 项…", plan.mode.verb())
+                };
             }
             Task::Create { path, .. } => return format!("正在新建“{}”…", leaf(path)),
             Task::Rename { to, .. } => return format!("正在重命名为“{}”…", leaf(to)),
@@ -284,6 +325,9 @@ impl Controller {
             if !one {
                 body += &format!("\n\n{}", name_list(&paths));
             }
+            if let Some(n) = self.cloud_delete_note(&paths, true) {
+                body += &format!("\n\n{n}");
+            }
             self.open_dialog(
                 Dialog::ConfirmDelete {
                     mode: DeleteMode::Permanent,
@@ -331,6 +375,9 @@ impl Controller {
                 unsupported[0].1
             );
         }
+        if let Some(n) = self.cloud_delete_note(&paths, false) {
+            body += &format!("\n\n{n}");
+        }
         self.open_dialog(
             Dialog::ConfirmDelete {
                 mode: DeleteMode::Recycle,
@@ -342,6 +389,27 @@ impl Controller {
             "取消",
             false,
         );
+    }
+
+    /// 位于云盘同步文件夹里的项目：说明“删除”会同步到云端，与右键菜单里的“释放空间”（只清本机副本）不同（Issue #14）。
+    pub fn cloud_delete_note(&self, paths: &[PathBuf], permanent: bool) -> Option<String> {
+        let mut provider: Option<String> = None;
+        for p in paths {
+            if let Some(root) = p.parent().and_then(|d| self.backend.cloud().sync_root(d)) {
+                provider = Some(crate::cloud::provider_label(&root.provider).to_string());
+                break;
+            }
+        }
+        let p = provider?;
+        Some(if permanent {
+            format!(
+                "这些项目位于 {p} 同步文件夹：永久删除会同步到云端，云端的副本也会被删除，能否找回取决于 {p} 的规则。\n只想腾出本机空间、保留云端内容时，请取消，改用右键菜单里的“释放空间”——那不会删除云端文件。"
+            )
+        } else {
+            format!(
+                "这些项目位于 {p} 同步文件夹：移到回收站后，{p} 会把它们从云端一并移除，能否找回取决于 {p} 的回收站规则。\n只想腾出本机空间、保留云端内容时，请取消，改用右键菜单里的“释放空间”——那不会删除云端文件。"
+            )
+        })
     }
 
     // ---------- 还原 ----------
@@ -479,6 +547,7 @@ impl Controller {
             focus,
             rename_after,
             clear_clip,
+            note,
         } = done;
         // 新建、重命名、粘贴成功后，在发起操作的面板里选中结果
         if let Some((p, dir, name)) = focus
@@ -507,10 +576,14 @@ impl Controller {
         let touched = self.dispatch(jobs);
         self.update_panes(&touched);
         let summary = report.summary();
+        let line = match &note {
+            Some(n) if report.ok_count() > 0 => format!("{}。{n}", summary.line),
+            _ => summary.line.clone(),
+        };
         if report.fail_count() == 0 {
-            self.set_info(&summary.line);
+            self.set_info(&line);
         } else {
-            self.set_message(&summary.line);
+            self.set_message(&line);
         }
         // 用户在系统提示里取消不算出错：只留状态栏一行，不再弹说明框
         let only_aborted =

@@ -41,13 +41,17 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 # 回收站（IShellFolder 外壳命名空间枚举、undelete 还原）与 SHFileOperationW 回收删除（src/recycle.rs）、
+# 云文件 API（Win32_Storage_CloudFilters，src/cloud：同步根与占位信息只读查询，Issue #14）、
 # 原生右键菜单（IContextMenu 系列接口，src/shell_menu；GDI／HiDpi／线程／键盘特性用于菜单锚点与资源观测）：COM 接口封装
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Storage_CloudFilters",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_CorrelationVector",
     "Win32_System_Memory",
     "Win32_System_Ole",
     "Win32_System_Threading",

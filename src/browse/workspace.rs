@@ -614,6 +614,7 @@ mod tests {
         let loaded = crate::browse::tab::Loaded {
             seq: jobs[0].req.seq,
             sort: jobs[0].req.sort,
+            cloud_root: None,
             result: Err(crate::browse::entry::ListError {
                 kind: crate::browse::ListErrorKind::NotFound,
                 os_code: None,

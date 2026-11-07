@@ -72,13 +72,13 @@ fn dlg_btn(c: &Ctx, label: &str) -> Res<ElementHandle> {
         })
 }
 
-fn center(e: &ElementHandle) -> (f32, f32) {
+pub(crate) fn center(e: &ElementHandle) -> (f32, f32) {
     let (p, s) = (e.absolute_position(), e.size());
     (p.x + s.width / 2.0, p.y + s.height / 2.0)
 }
 
 /// 指针按下 → 经过若干点移动（不释放）。
-fn press_and_move(c: &Ctx, from: (f32, f32), via: &[(f32, f32)]) {
+pub(crate) fn press_and_move(c: &Ctx, from: (f32, f32), via: &[(f32, f32)]) {
     let w = c.win.window();
     let pos = |p: (f32, f32)| slint::LogicalPosition::new(p.0, p.1);
     w.dispatch_event(WindowEvent::PointerMoved {
@@ -95,7 +95,7 @@ fn press_and_move(c: &Ctx, from: (f32, f32), via: &[(f32, f32)]) {
     }
 }
 
-fn release(c: &Ctx, p: (f32, f32)) {
+pub(crate) fn release(c: &Ctx, p: (f32, f32)) {
     c.win.window().dispatch_event(WindowEvent::PointerReleased {
         position: slint::LogicalPosition::new(p.0, p.1),
         button: PointerEventButton::Left,

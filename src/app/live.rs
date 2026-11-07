@@ -53,18 +53,21 @@ pub struct LiveEnv {
     pub favorites: Option<FavoritesStore>,
     pub onedrive: Option<PathBuf>,
     pub icloud: Option<PathBuf>,
+    pub icloud_photos: Option<PathBuf>,
     /// 是否启动目录监视。
     pub watch: bool,
 }
 
 impl LiveEnv {
     pub fn production(favorites: Option<FavoritesStore>) -> LiveEnv {
-        let (onedrive, icloud) = places::detect_cloud_roots();
+        // 同步根注册表优先（iCloud 被移到别的盘时也能找到），回退环境变量（Issue #14）
+        let roots = crate::cloud::roots::discover();
         LiveEnv {
             drives: DriveSource::System,
             favorites,
-            onedrive,
-            icloud,
+            onedrive: roots.onedrive,
+            icloud: roots.icloud,
+            icloud_photos: roots.icloud_photos,
             watch: true,
         }
     }
@@ -76,6 +79,7 @@ impl LiveEnv {
             favorites: None,
             onedrive: None,
             icloud: None,
+            icloud_photos: None,
             watch: false,
         }
     }
@@ -148,6 +152,7 @@ pub struct Live {
     fav_save_failed: Cell<bool>,
     onedrive: Option<PathBuf>,
     icloud: Option<PathBuf>,
+    icloud_photos: Option<PathBuf>,
     sidebar: Rc<VecModel<SidebarEntry>>,
     watch_on: bool,
     hub: RefCell<Vec<WatchEntry>>,
@@ -187,6 +192,7 @@ impl Live {
                 fav_save_failed: Cell::new(false),
                 onedrive: env.onedrive,
                 icloud: env.icloud,
+                icloud_photos: env.icloud_photos,
                 sidebar: Rc::new(VecModel::default()),
                 watch_on: env.watch,
                 hub: RefCell::new(Vec::new()),
@@ -228,7 +234,10 @@ impl Live {
             .iter()
             .map(|d| d.root.clone())
             .collect();
-        for c in [&self.onedrive, &self.icloud].into_iter().flatten() {
+        for c in [&self.onedrive, &self.icloud, &self.icloud_photos]
+            .into_iter()
+            .flatten()
+        {
             let covered =
                 drive_letter(c).is_some_and(|l| self.drives.borrow().iter().any(|d| d.letter == l));
             if !covered {
@@ -287,6 +296,7 @@ impl Controller {
         self.fire_pending(t);
         if t.is_multiple_of(PROBE_TICKS) {
             self.probe_unavailable();
+            self.probe_cloud_status();
             self.sync_watches();
         }
     }
@@ -585,6 +595,30 @@ impl Controller {
         }
     }
 
+    /// 可见标签所在的同步根：提供方状态变化（同步客户端退出／启动、断网／恢复）时静默重读，
+    /// 让“仅在线”标记与状态栏说明跟上真实情况（Issue #14）。每次只对可见的云盘标签做一次只读查询。
+    fn probe_cloud_status(&self) {
+        let ids: Vec<TabId> = {
+            let ws = self.ws.borrow();
+            (0..2)
+                .filter(|&p| ws.is_visible(p))
+                .map(|p| ws.active_tab(p))
+                .filter(|t| *t.state() == LoadState::Ready)
+                .filter(|t| {
+                    t.location().is_some_and(|loc| {
+                        self.backend.cloud().sync_root(loc).as_ref() != t.cloud_root()
+                    })
+                })
+                .map(|t| t.id())
+                .collect()
+        };
+        for id in ids {
+            if !self.live.inflight.borrow().contains(&id) {
+                self.reload_tab_silent(id);
+            }
+        }
+    }
+
     // ---------- 收藏 ----------
 
     /// 工具栏星标 / Ctrl+D：收藏或取消收藏活动面板的当前位置。
@@ -779,13 +813,16 @@ impl Controller {
             }
             v.push(e);
         }
-        if l.onedrive.is_some() || l.icloud.is_some() {
+        if l.onedrive.is_some() || l.icloud.is_some() || l.icloud_photos.is_some() {
             v.push(header("hdr-cloud", "云盘"));
             if l.onedrive.is_some() {
                 v.push(row("onedrive".into(), "OneDrive".into(), "cloud"));
             }
             if l.icloud.is_some() {
                 v.push(row("icloud".into(), "iCloud".into(), "cloud"));
+            }
+            if l.icloud_photos.is_some() {
+                v.push(row("icloud-photos".into(), "iCloud 照片".into(), "cloud"));
             }
         }
         l.sidebar.set_vec(v);
@@ -812,6 +849,14 @@ impl Controller {
         }
         if self.live.icloud.as_deref().is_some_and(|p| same(p, loc)) {
             return "icloud".into();
+        }
+        if self
+            .live
+            .icloud_photos
+            .as_deref()
+            .is_some_and(|p| same(p, loc))
+        {
+            return "icloud-photos".into();
         }
         String::new()
     }
@@ -872,11 +917,11 @@ impl Controller {
                     st.reason()
                 ));
             }
-        } else if id == "onedrive" || id == "icloud" {
-            let dir = if id == "onedrive" {
-                self.live.onedrive.clone()
-            } else {
-                self.live.icloud.clone()
+        } else if id == "onedrive" || id == "icloud" || id == "icloud-photos" {
+            let dir = match id {
+                "onedrive" => self.live.onedrive.clone(),
+                "icloud" => self.live.icloud.clone(),
+                _ => self.live.icloud_photos.clone(),
             };
             if let Some(d) = dir {
                 self.navigate_path(p, d);

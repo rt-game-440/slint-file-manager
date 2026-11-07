@@ -2,6 +2,9 @@
 //! 用法见 docs/debug-harness.md；命令封装在 scripts/harness.ps1。
 //! 必须以 `--features harness` 构建，发布产物不含本程序。
 
+mod cloud;
+mod cloud_lab;
+mod cloud_real;
 mod compare;
 mod ctx;
 mod delete;
@@ -137,6 +140,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
         let (xf, f7) = xfer::xfer(size, scale).map_err(|e| format!("[新建传输] {e}"))?;
         let (prev, f8) = preview::preview(size, scale).map_err(|e| format!("[预览] {e}"))?;
         let (shell, f9) = preview::shell(size, scale).map_err(|e| format!("[系统缩略图] {e}"))?;
+        let (cloud, f10) = cloud::cloud(size, scale).map_err(|e| format!("[云盘] {e}"))?;
         fails.extend(f1.into_iter().map(|f| format!("[单栏] {f}")));
         fails.extend(f2.into_iter().map(|f| format!("[双栏] {f}")));
         fails.extend(f3.into_iter().map(|f| format!("[恢复] {f}")));
@@ -146,7 +150,8 @@ fn cmd_run(args: &Args) -> Res<i32> {
         fails.extend(f7.into_iter().map(|f| format!("[新建传输] {f}")));
         fails.extend(f8.into_iter().map(|f| format!("[预览] {f}")));
         fails.extend(f9.into_iter().map(|f| format!("[系统缩略图] {f}")));
-        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context, "thumbs": thumbs, "xfer": xf, "preview": prev, "shell": shell}));
+        fails.extend(f10.into_iter().map(|f| format!("[云盘] {f}")));
+        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context, "thumbs": thumbs, "xfer": xf, "preview": prev, "shell": shell, "cloud": cloud}));
     }
     let consistent = runs.windows(2).all(|w| w[0] == w[1]);
     if !consistent {
@@ -154,6 +159,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
         // 指出第一处不同的步骤与字段，便于定位不确定性来源
         'outer: for sec in [
             "single", "dual", "restore", "delete", "context", "thumbs", "xfer", "preview", "shell",
+            "cloud",
         ] {
             let (a, b) = (&runs[0][sec], &runs[1][sec]);
             for (x, y) in a
@@ -182,7 +188,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
                 "failures": fails, "steps": runs[0]}),
     )?;
     println!(
-        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步、缩略图 {} 步、新建重命名传输 {} 步、大图预览 {} 步、系统缩略图 {} 步，重复 {repeat} 次，{}；输出 {}",
+        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步、缩略图 {} 步、新建重命名传输 {} 步、大图预览 {} 步、系统缩略图 {} 步、云盘 {} 步，重复 {repeat} 次，{}；输出 {}",
         runs[0]["single"].as_array().map_or(0, |a| a.len()),
         runs[0]["dual"].as_array().map_or(0, |a| a.len()),
         runs[0]["restore"].as_array().map_or(0, |a| a.len()),
@@ -192,6 +198,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
         runs[0]["xfer"].as_array().map_or(0, |a| a.len()),
         runs[0]["preview"].as_array().map_or(0, |a| a.len()),
         runs[0]["shell"].as_array().map_or(0, |a| a.len()),
+        runs[0]["cloud"].as_array().map_or(0, |a| a.len()),
         if fails.is_empty() {
             "全部断言通过且结果一致"
         } else {
@@ -506,7 +513,10 @@ fn main() {
     let code = (|| -> Res<i32> {
         let args = Args::parse()?;
         ctx::init_platform();
-        if !matches!(args.cmd.as_str(), "review" | "search-bench" | "video-compat") {
+        if !matches!(
+            args.cmd.as_str(),
+            "review" | "search-bench" | "video-compat" | "cloud-real" | "cloud-lab"
+        ) {
             fixture::ensure()?;
         }
         match args.cmd.as_str() {
@@ -520,13 +530,20 @@ fn main() {
             "search" => cmd_search(&args),
             "search-bench" => cmd_search_bench(&args),
             "review" => cmd_review(&args),
+            "cloud-lab" => {
+                let root = args.opts.get("root").ok_or("cloud-lab 需要 --root=云盘同步目录")?;
+                let label = args.get("label", "云盘");
+                let out = args.dir("out", &format!("{ARTIFACTS}/state/cloud-lab-{label}.json"));
+                cloud_lab::run(Path::new(root), &label, args.get("wait", "120").parse()?, &out)
+            }
+            "cloud-real" => cloud_real::run(&args.dir("out", &format!("{ARTIFACTS}/state/cloud-real.json"))),
             "video-compat" => videos::cmd(
                 &args.dir("dir", &std::env::temp_dir().join("sfm-video-fixtures").to_string_lossy()),
                 &args.dir("out-png", &format!("{ARTIFACTS}/video-compat")),
                 &args.dir("out", &format!("{ARTIFACTS}/state/video-compat.json")),
             ),
             c => Err(format!(
-                "未知子命令 {c}；可用：tree run snap bless compare frames live search search-bench video-compat review"
+                "未知子命令 {c}；可用：tree run snap bless compare frames live search search-bench video-compat cloud-real cloud-lab review"
             )
             .into()),
         }

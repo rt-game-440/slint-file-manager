@@ -447,6 +447,32 @@ mod tests {
         assert!(c.truncated.load(Ordering::Relaxed));
     }
 
+    /// 真实属性：带“仅在线”标记的文件夹只显示名称、不展开（Issue #14：搜索不绕过下载边界）。
+    #[test]
+    fn offline_folder_is_listed_but_never_entered() {
+        let d = temp("offline-dir");
+        let cloud = d.join("云端夹");
+        fs::create_dir(&cloud).unwrap();
+        fs::write(cloud.join("夹内文件.txt"), b"x").unwrap();
+        fs::create_dir(d.join("本地夹")).unwrap();
+        fs::write(d.join("本地夹").join("夹内文件.txt"), b"x").unwrap();
+        let st = std::process::Command::new("attrib")
+            .arg("+O")
+            .arg(&cloud)
+            .status()
+            .unwrap();
+        assert!(st.success());
+        let (h, c, _) = run(std::slice::from_ref(&d), "夹", &Cancel::new());
+        let mut n = names(&h);
+        n.sort();
+        assert_eq!(
+            n,
+            vec!["云端夹", "夹内文件.txt", "本地夹"],
+            "只展开本地夹，云端夹自身仍可被搜到"
+        );
+        assert_eq!(c.cloud_unexpanded.load(Ordering::Relaxed), 1);
+    }
+
     #[test]
     fn cloud_attribute_classification() {
         assert!(cloud_unpopulated(0x10 | ATTR_RECALL_ON_DATA_ACCESS));

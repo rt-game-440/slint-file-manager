@@ -255,19 +255,6 @@ pub fn enumerate_drives() -> Vec<Drive> {
     out
 }
 
-/// OneDrive 与 iCloud 云盘在本机的目录（作为普通本地目录入口使用；是否下载内容不由本模块决定，见 Issue #14）。
-pub fn detect_cloud_roots() -> (Option<PathBuf>, Option<PathBuf>) {
-    let dir = |p: PathBuf| p.is_dir().then_some(p);
-    let onedrive = ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"]
-        .iter()
-        .filter_map(|k| std::env::var_os(k).map(PathBuf::from))
-        .find_map(dir);
-    let icloud = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .and_then(|h| dir(h.join("iCloudDrive")));
-    (onedrive, icloud)
-}
-
 // ---------- 收藏 ----------
 
 #[derive(Clone, Debug, PartialEq, Eq)]

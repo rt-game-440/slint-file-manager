@@ -20,6 +20,6 @@
 - F5 为可靠的手动刷新入口。
 
 ## 边界
-- OneDrive／iCloud 只当作普通本地目录处理；云占位文件的“不隐式下载”由 Issue #14 负责。
+- OneDrive／iCloud 的入口（OneDrive、iCloud、iCloud 照片）来自系统同步根注册表（回退环境变量）；浏览它们遵守“无隐式下载”规则，状态标记与审计见 [cloud-browsing.md](cloud-browsing.md)。
 - 网络驱动器（映射盘符）按其盘类型原样列出，未确认的网络位置不做发现。
 - 真实 USB 的人工验收见 `docs/checklist/checklist.md` 的 Issue #7 小节；自动化用 `subst` 虚拟盘模拟插拔。

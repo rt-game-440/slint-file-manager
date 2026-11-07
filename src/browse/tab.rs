@@ -8,10 +8,11 @@
 //! 从会话文件恢复的标签先处于 [`LoadState::Idle`]（只带位置，不读取目录），首次被激活时才读取；
 //! 位置读取失败时标签保留，不自动换位置，也不自动重试。
 
-use super::entry::{Entry, ListError, ListErrorKind, list_dir};
+use super::entry::{Entry, ListError, ListErrorKind, list_dir_with};
 use super::history::History;
 use super::location::is_recycle_bin;
 use super::sort::{SortSpec, sort_by};
+use crate::cloud::SyncRoot;
 use crate::fileops::{Backend, BinItem};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -59,6 +60,8 @@ pub struct Loaded {
     pub seq: u64,
     pub sort: SortSpec,
     pub result: Result<Vec<Entry>, ListError>,
+    /// 目录所在的同步根（OneDrive／iCloud 等）及其提供方状态；不在云盘里为 `None`（Issue #14）。
+    pub cloud_root: Option<SyncRoot>,
 }
 
 impl LoadRequest {
@@ -70,10 +73,13 @@ impl LoadRequest {
 
     /// 同 [`LoadRequest::run`]，回收站内容由 `backend` 提供（测试与 harness 注入用）。
     pub fn run_with(&self, backend: &dyn Backend) -> Loaded {
-        let listed = if is_recycle_bin(&self.path) {
-            list_bin(backend)
+        let (listed, cloud_root) = if is_recycle_bin(&self.path) {
+            (list_bin(backend), None)
         } else {
-            list_dir(&self.path)
+            match list_dir_with(&self.path, backend.cloud()) {
+                Ok((v, root)) => (Ok(v), root),
+                Err(e) => (Err(e), None),
+            }
         };
         let result = listed.map(|mut v| {
             sort_by(&mut v, self.sort, |e| e);
@@ -82,6 +88,7 @@ impl LoadRequest {
         Loaded {
             seq: self.seq,
             sort: self.sort,
+            cloud_root,
             result,
         }
     }
@@ -170,6 +177,8 @@ pub struct Tab {
     selected_count: usize,
     changed: Vec<usize>,
     restore: Restore,
+    /// 当前目录所在的同步根与提供方状态（最近一次读取的结果）。
+    cloud_root: Option<SyncRoot>,
     /// 静默刷新请求的序号（外部变化、磁盘恢复探测）：不显示“加载中”、不清空列表，结果按名称合并。
     silent_seq: Option<u64>,
     /// 读取过程中又收到了外部变化通知：读取完成后需要再静默刷新一次。
@@ -320,6 +329,11 @@ impl Tab {
     pub fn location(&self) -> Option<&Path> {
         self.location.as_deref()
     }
+    /// 当前目录所在的同步根与提供方状态；不在云盘里为 `None`。
+    pub fn cloud_root(&self) -> Option<&SyncRoot> {
+        self.cloud_root.as_ref()
+    }
+
     pub fn rows(&self) -> &[Row] {
         &self.rows
     }
@@ -488,6 +502,7 @@ impl Tab {
         self.silent_seq = None;
         self.stale = false;
         self.needs_refresh = false;
+        self.cloud_root = None;
         self.restore = restore;
         LoadRequest {
             seq: self.seq,
@@ -505,6 +520,7 @@ impl Tab {
         if loaded.seq != self.seq || self.state != LoadState::Loading {
             return false;
         }
+        self.cloud_root = loaded.cloud_root;
         match loaded.result {
             Ok(entries) => {
                 self.rows = entries
@@ -555,6 +571,9 @@ impl Tab {
         if !matches!(self.state, LoadState::Ready | LoadState::Failed { .. }) {
             return false;
         }
+        // 提供方状态变化（同步客户端退出／恢复、断网）本身就需要重绘提示，即使条目没变
+        let root_changed = self.cloud_root != loaded.cloud_root;
+        self.cloud_root = loaded.cloud_root;
         let mut entries = match loaded.result {
             Ok(v) => v,
             Err(e) => {
@@ -563,7 +582,7 @@ impl Tab {
                     message: e.message,
                 };
                 if self.state == new {
-                    return false;
+                    return root_changed;
                 }
                 self.clear_rows();
                 self.state = new;
@@ -574,6 +593,7 @@ impl Tab {
             sort_by(&mut entries, self.sort, |e| e);
         }
         if self.state == LoadState::Ready
+            && !root_changed
             && entries.len() == self.rows.len()
             && entries
                 .iter()
@@ -826,7 +846,11 @@ impl Tab {
 
 /// 两个条目显示信息是否相同（名称、类型、大小、修改时间）。
 fn same_entry(a: &Entry, b: &Entry) -> bool {
-    a.os_name == b.os_name && a.is_dir == b.is_dir && a.size == b.size && a.modified == b.modified
+    a.os_name == b.os_name
+        && a.is_dir == b.is_dir
+        && a.size == b.size
+        && a.modified == b.modified
+        && a.cloud == b.cloud
 }
 
 /// `child` 是 `parent` 的直接子路径时返回其名称。
@@ -849,6 +873,7 @@ mod tests {
         Loaded {
             seq: req.seq,
             sort: req.sort,
+            cloud_root: None,
             result: Ok(v),
         }
     }
@@ -1000,6 +1025,7 @@ mod tests {
         t.apply(Loaded {
             seq: r.seq,
             sort: r.sort,
+            cloud_root: None,
             result: Err(ListError {
                 kind: ListErrorKind::AccessDenied,
                 os_code: Some(5),
@@ -1113,6 +1139,7 @@ mod tests {
         let fail = Loaded {
             seq: r.seq,
             sort: r.sort,
+            cloud_root: None,
             result: Err(ListError {
                 kind: ListErrorKind::NotFound,
                 os_code: Some(3),
@@ -1127,6 +1154,7 @@ mod tests {
         let fail = Loaded {
             seq: r.seq,
             sort: r.sort,
+            cloud_root: None,
             result: Err(ListError {
                 kind: ListErrorKind::NotFound,
                 os_code: Some(3),
