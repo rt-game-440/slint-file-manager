@@ -46,7 +46,14 @@ pub fn compare(a: &Entry, b: &Entry, key: SortKey) -> Ordering {
             SortKey::Name => Ordering::Equal,
             SortKey::Modified => a.modified.cmp(&b.modified),
             SortKey::Size => a.size.cmp(&b.size),
-            SortKey::Kind => a.ext.cmp(&b.ext),
+            // 回收站视图里这一列显示原位置，按原位置分组；其余视图按扩展名
+            SortKey::Kind => match (&a.bin, &b.bin) {
+                (Some(x), Some(y)) => x
+                    .original_dir
+                    .to_lowercase()
+                    .cmp(&y.original_dir.to_lowercase()),
+                _ => a.ext.cmp(&b.ext),
+            },
         })
         .then_with(|| logical_cmp(a, b))
         .then_with(|| a.os_name.cmp(&b.os_name))

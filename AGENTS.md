@@ -33,5 +33,6 @@ Rust + Slint 工程，仅支持 Windows（见 ADR 0001、0008）。版本、渲�
   - 真实窗口帧耗时日志：`slint-file-manager.exe --debug-perf`（默认关闭，写 `logs/`）；真实窗口截图：`scripts/capture-window.ps1`
   - 整体验证：`powershell -File scripts/verify-harness.ps1`
   - 界面元素需按手册的标识约定写 id 与 `accessible-label`；文字与背景要显式写颜色。
+- 删除、回收站与还原（Delete 移到回收站、Shift+Delete 永久删除，都先弹应用内确认；回收站是虚拟位置 `shell:RecycleBinFolder`，用外壳命名空间读取，视图里“还原所选项目”；不提供清空回收站）：设计与安全约束见 [docs/delete-recycle-bin.md](docs/delete-recycle-bin.md)。代码：`src/fileops.rs`（后端接口、逐项汇报、临时目录“回收站” `StashBackend`）、`src/recycle.rs`（Windows 外壳实现）、`src/app/ops.rs`（确认框与后台执行）。真实回收站测试只用临时夹具，运行与清扫见 `scripts/run-recycle-tests.ps1`。
 - 视觉参考：仅 [A2](docs/concepts/file-manager/concept.md)；被淘汰的概念图不入库，不得当作依据。
 - Windows 11 尚无环境，兼容性未验证。

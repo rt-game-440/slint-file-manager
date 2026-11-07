@@ -1,6 +1,26 @@
 //! 位置与地址：解析地址栏输入、生成路径导航分段、显示文本。只做字符串层面的处理，不访问磁盘。
+//!
+//! 回收站不是磁盘路径：它用一个虚拟位置 [`RECYCLE_BIN`]（外壳的规范名）表示，由外壳命名空间读取，
+//! 从不当作普通目录枚举。地址栏显示为“回收站”，输入“回收站”或 `shell:RecycleBinFolder` 都会进入。
 
 use std::path::{Component, Path, PathBuf};
+
+/// 回收站的虚拟位置（外壳规范名，不是真实路径）。
+pub const RECYCLE_BIN: &str = "shell:RecycleBinFolder";
+/// 回收站在界面上的名称。
+pub const RECYCLE_BIN_LABEL: &str = "回收站";
+
+/// 回收站的位置值。
+pub fn recycle_bin_path() -> PathBuf {
+    PathBuf::from(RECYCLE_BIN)
+}
+
+/// 是否为回收站的虚拟位置。
+pub fn is_recycle_bin(p: &Path) -> bool {
+    p.as_os_str()
+        .to_str()
+        .is_some_and(|s| s.eq_ignore_ascii_case(RECYCLE_BIN))
+}
 
 /// 解析地址栏输入为绝对路径。
 ///
@@ -14,6 +34,9 @@ pub fn parse_address(input: &str, current: Option<&Path>) -> Option<PathBuf> {
     }
     if s.is_empty() {
         return None;
+    }
+    if s == RECYCLE_BIN_LABEL || s.eq_ignore_ascii_case(RECYCLE_BIN) {
+        return Some(recycle_bin_path());
     }
     let s = expand_env(s).replace('/', "\\");
     let p = PathBuf::from(&s);
@@ -99,6 +122,12 @@ pub struct Crumb {
 
 /// 把路径拆成导航分段：根（如 `C:`、`\\server\share`）+ 各级文件夹。
 pub fn crumbs(p: &Path) -> Vec<Crumb> {
+    if is_recycle_bin(p) {
+        return vec![Crumb {
+            label: RECYCLE_BIN_LABEL.into(),
+            path: recycle_bin_path(),
+        }];
+    }
     let mut out = Vec::new();
     let mut acc = PathBuf::new();
     for c in p.components() {
@@ -136,11 +165,17 @@ pub fn crumbs(p: &Path) -> Vec<Crumb> {
 
 /// 地址栏显示文本。
 pub fn display(p: &Path) -> String {
+    if is_recycle_bin(p) {
+        return RECYCLE_BIN_LABEL.into();
+    }
     p.to_string_lossy().into_owned()
 }
 
 /// 标签标题：最后一级名称；磁盘根显示为 `C:`。
 pub fn leaf_label(p: &Path) -> String {
+    if is_recycle_bin(p) {
+        return RECYCLE_BIN_LABEL.into();
+    }
     match p.file_name() {
         Some(n) => n.to_string_lossy().into_owned(),
         None => crumbs(p)
@@ -176,6 +211,27 @@ mod tests {
         );
         assert!(parse_address("   ", Some(cur)).is_none());
         assert!(parse_address("相对", None).is_none());
+    }
+
+    #[test]
+    fn recycle_bin_is_a_virtual_location() {
+        let bin = recycle_bin_path();
+        assert!(is_recycle_bin(&bin));
+        assert!(is_recycle_bin(Path::new("SHELL:recyclebinfolder")));
+        assert!(!is_recycle_bin(Path::new(r"C:\$Recycle.Bin")));
+        assert_eq!(
+            parse_address("回收站", Some(Path::new(r"C:\x"))).unwrap(),
+            bin
+        );
+        assert_eq!(
+            parse_address(" shell:RecycleBinFolder ", None).unwrap(),
+            bin
+        );
+        assert_eq!(display(&bin), "回收站");
+        assert_eq!(leaf_label(&bin), "回收站");
+        let c = crumbs(&bin);
+        assert_eq!(c.len(), 1);
+        assert_eq!((c[0].label.as_str(), c[0].path.clone()), ("回收站", bin));
     }
 
     #[test]

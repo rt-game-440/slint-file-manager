@@ -6,6 +6,7 @@ import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { IconButton, WindowButton, MenuRow } from "controls.slint";
 import { BrowserPane } from "browser-pane.slint";
+import { ModalDialog } from "dialog.slint";
 import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry } from "types.slint";
 
 export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry }
@@ -148,6 +149,16 @@ export component MainWindow inherits Window {
     in property <[SidebarEntry]> sidebar-places;
     // 活动面板的当前位置是否已收藏
     in property <bool> current-favorite;
+    // 状态栏提示是否为成功／普通信息（false 为警示红：失败、部分完成、被拒绝）
+    in property <bool> status-message-ok: false;
+    // 应用内模态对话框（删除确认、操作结果）；cancel-label 为空时只有确定按钮
+    in property <bool> dialog-visible: false;
+    in property <string> dialog-title;
+    in property <string> dialog-body;
+    in property <string> dialog-confirm-label;
+    in property <string> dialog-cancel-label;
+    in property <bool> dialog-danger: false;
+    in property <int> dialog-token;
 
     // 工具栏与键盘作用于活动面板
     property <PaneView> active-view: root.active-pane == 0 ? root.left-view : root.right-view;
@@ -182,6 +193,12 @@ export component MainWindow inherits Window {
     callback activate-selection(int);
     callback toggle-cursor(int);
     callback open-location(int);
+    // 删除所选：第二个参数为 true 是永久删除（Shift+Delete），否则移到回收站（Delete）
+    callback delete-selected(int, bool);
+    // 回收站视图：还原所选项目到原位置
+    callback restore-selected(int);
+    callback dialog-accepted();
+    callback dialog-cancelled();
     callback set-sort(int, SortKey, bool);
     callback set-view(int, ViewMode);
     callback tab-clicked(int, int);
@@ -199,7 +216,7 @@ export component MainWindow inherits Window {
 
     // 回收站入口（Issue #8 提供）；其余入口见 sidebar-places
     property <[SidebarEntry]> sidebar-entries: [
-        { id: "recycle-bin", label: "回收站", icon: "trash", enabled: false, description: "后续版本提供" },
+        { id: "recycle-bin", label: "回收站", icon: "trash", enabled: true, description: "已删除的项目，可还原" },
     ];
 
     public function begin-edit-address() {
@@ -278,6 +295,11 @@ export component MainWindow inherits Window {
             }
             if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && e.text.character-count == 1 && e.text.is-float()) {
                 root.tab-number(root.active-pane, Math.round(e.text.to-float()));
+                return accept;
+            }
+            // ---- 删除：Delete 移到回收站，Shift+Delete 永久删除（都要先确认） ----
+            if (e.text == Key.Delete && !e.modifiers.control && !e.modifiers.alt) {
+                root.delete-selected(root.active-pane, e.modifiers.shift);
                 return accept;
             }
             // ---- 面板与布局 ----
@@ -452,6 +474,41 @@ export component MainWindow inherits Window {
                                 }
                             }
 
+                            VerticalLayout {
+                                alignment: center;
+                                delete-button := IconButton {
+                                    icon: "trash";
+                                    label: "删除";
+                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle;
+                                    clicked => {
+                                        root.delete-selected(root.active-pane, false);
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                delete-permanent-button := IconButton {
+                                    icon: "trash-x";
+                                    label: "永久删除";
+                                    danger: true;
+                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle;
+                                    clicked => {
+                                        root.delete-selected(root.active-pane, true);
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 9px;
+                                Rectangle {
+                                    x: 4px;
+                                    width: 1px;
+                                    height: 18px;
+                                    background: Theme.divider-strong;
+                                }
+                            }
+
                             // 双栏入口：双栏／单栏切换。单栏只是隐藏，另一侧的标签与状态原样保留
                             VerticalLayout {
                                 alignment: center;
@@ -531,7 +588,9 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 alignment: center;
                                 search-box := Rectangle {
-                                    width: 220px * Theme.text-scale;
+                                    // 空间不足时让搜索框先收窄（最小 48px），不把整个窗口撑宽
+                                    preferred-width: 220px * Theme.text-scale;
+                                    min-width: 48px;
                                     height: Theme.control-h;
                                     border-radius: Theme.control-h / 2;
                                     background: #f0f1f4;
@@ -751,6 +810,9 @@ export component MainWindow inherits Window {
                             open-location(a0) => {
                                 root.open-location(a0);
                             }
+                            restore-selected(a0) => {
+                                root.restore-selected(a0);
+                            }
                             tab-clicked(a0, a1) => {
                                 root.tab-clicked(a0, a1);
                             }
@@ -830,6 +892,9 @@ export component MainWindow inherits Window {
                             open-location(a0) => {
                                 root.open-location(a0);
                             }
+                            restore-selected(a0) => {
+                                root.restore-selected(a0);
+                            }
                             tab-clicked(a0, a1) => {
                                 root.tab-clicked(a0, a1);
                             }
@@ -879,7 +944,7 @@ export component MainWindow inherits Window {
 
                     status-message-label := Text {
                         text: root.status-message;
-                        color: Theme.danger;
+                        color: root.status-message-ok ? Theme.text-secondary : Theme.danger;
                         font-size: Theme.font-small;
                         vertical-alignment: center;
                         overflow: elide;
@@ -889,6 +954,24 @@ export component MainWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    // ---------- 应用内模态对话框 ----------
+    if root.dialog-visible: ModalDialog {
+        width: root.width;
+        height: root.height;
+        title: root.dialog-title;
+        body: root.dialog-body;
+        confirm-label: root.dialog-confirm-label;
+        cancel-label: root.dialog-cancel-label;
+        danger: root.dialog-danger;
+        focus-token: root.dialog-token;
+        accepted => {
+            root.dialog-accepted();
+        }
+        cancelled => {
+            root.dialog-cancelled();
         }
     }
 }

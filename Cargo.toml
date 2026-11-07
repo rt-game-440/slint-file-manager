@@ -29,6 +29,19 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# 回收站（IShellFolder 外壳命名空间枚举、undelete 还原）与 SHFileOperationW 回收删除：COM 接口封装，仅 src/recycle.rs 使用
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
 # 内部测试后端，必须与 slint 同版本（见 docs/debug-harness.md）
 i-slint-backend-testing = { version = "=1.18.1", optional = true, features = ["renderer-software"] }
 png = { version = "0.18", optional = true }

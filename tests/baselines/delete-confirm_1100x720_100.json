@@ -1,0 +1,21 @@
+{
+  "fingerprint": {
+    "fixture_root": "C:\\Users\\15575\\AppData\\Local\\Temp\\sfm-harness\\样例目录",
+    "fonts": "4d640a4f1b03e06a",
+    "os": "windows",
+    "renderer": "software（i-slint-renderer-software 1.18.1，离屏）",
+    "slint": "1.18.1",
+    "utc_offset_s": 28800
+  },
+  "logical_size": [
+    1100,
+    720
+  ],
+  "physical_size": [
+    1100,
+    720
+  ],
+  "scale": 1.0,
+  "scenario": "delete-confirm",
+  "stable": true
+}

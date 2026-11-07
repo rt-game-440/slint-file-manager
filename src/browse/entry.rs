@@ -6,6 +6,7 @@
 //! - 文件名保留原始 `OsString` 用于拼接路径，显示用的 `name` 只做有损转换，
 //!   避免含特殊字符的文件名被转换后指向错误路径。
 
+use crate::fileops::BinItem;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::MetadataExt;
@@ -31,6 +32,9 @@ pub struct Entry {
     pub ext: String,
     /// 以 NUL 结尾的 UTF-16 文件名，供 `StrCmpLogicalW` 排序使用。
     pub(crate) wide: Box<[u16]>,
+    /// 回收站项目的外壳标识与原位置（只有回收站视图的条目有）；此时 `modified` 是删除时间，
+    /// `os_name` 是保证唯一的键（同名项目可能多次进入回收站），显示用 `name`。
+    pub bin: Option<std::sync::Arc<BinItem>>,
 }
 
 impl Entry {
@@ -57,7 +61,25 @@ impl Entry {
             modified,
             ext,
             wide,
+            bin: None,
         }
+    }
+
+    /// 回收站里的一项。显示名与扩展名取原文件名；`os_name` 换成含外壳标识摘要的唯一键
+    ///（刷新后同一项键不变，选择得以保留；同名项目互不混淆）。
+    pub fn from_bin(item: BinItem) -> Entry {
+        let h = item.id.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+            (h ^ *b as u64).wrapping_mul(0x100_0000_01b3)
+        });
+        let mut e = Entry::new(
+            OsString::from(&item.name),
+            item.is_dir,
+            item.size,
+            item.deleted,
+        );
+        e.os_name = OsString::from(format!("{}|{h:016x}", item.name));
+        e.bin = Some(std::sync::Arc::new(item));
+        e
     }
 }
 

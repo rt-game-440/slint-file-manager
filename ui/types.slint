@@ -49,6 +49,10 @@ export struct PaneView {
     can-back: bool,
     can-forward: bool,
     can-up: bool,
+    // 当前标签位置是回收站（虚拟位置）：列表显示“删除日期／原位置”，面板顶部有还原条
+    recycle: bool,
+    // 本面板当前标签的已选数量
+    selected-count: int,
 }
 
 // 侧栏的一行。标题行（header）只是分组小标题；收藏行 removable 时悬停显示“×”。

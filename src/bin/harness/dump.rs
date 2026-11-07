@@ -26,6 +26,15 @@ fn element(e: &ElementHandle) -> Value {
 
 /// 路径只保留相对样例目录的部分，其余原样。
 pub fn rel_path(p: &Path) -> String {
+    if slint_file_manager::browse::location::is_recycle_bin(p) {
+        return "<回收站>".into();
+    }
+    let scratch = crate::fixture::parent().join("scratch");
+    if let Ok(rel) = p.strip_prefix(&scratch) {
+        return format!("<草稿>\\{}", rel.display())
+            .trim_end_matches('\\')
+            .to_string();
+    }
     let root = crate::fixture::root();
     match p.strip_prefix(&root) {
         Ok(rel) => format!("<样例目录>\\{}", rel.display())
@@ -81,6 +90,15 @@ pub fn extras(ctx: &Ctx) -> Value {
         "can_up": w.get_can_up(),
         "status_text": w.get_status_text().to_string(),
         "status_message": mask_time(&w.get_status_message()),
+        "status_message_ok": w.get_status_message_ok(),
+        "dialog": {
+            "visible": w.get_dialog_visible(),
+            "title": w.get_dialog_title().to_string(),
+            "danger": w.get_dialog_danger(),
+            "confirm": w.get_dialog_confirm_label().to_string(),
+            "cancel": w.get_dialog_cancel_label().to_string(),
+        },
+        "bin_items": ctx.stash.bin_len(),
         "pending_loads": ctx.ctl.pending(),
         "opened": ctx.opened.borrow().iter().map(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).collect::<Vec<_>>(),
     })
