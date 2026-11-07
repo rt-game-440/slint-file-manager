@@ -90,6 +90,8 @@
 
 输入模拟：`Ctx::click`（`mock_single_click`，含 50ms 模拟时间）、`Ctx::ctrl_click`／`shift_click`（先发送修饰键按下事件，指针事件的 modifiers 来自窗口的修饰键状态）、`Ctx::double_click`（两次单击）、`Ctx::click_at`／`click_right_edge`（点元素中心以外的位置，如地址栏右侧空白）、`Ctx::key`／`special(Key, 修饰键)`、`Ctx::type_text`（向焦点文本框逐字输入）、`Ctx::enter_address`（调用地址栏的无障碍默认动作进入编辑再输入，窄面板里面包屑占满地址栏也能用；路径写绝对路径）、`Ctx::pump`（完成排队的目录读取）、`ElementHandle::scroll`。
 
+**搜索范围入口的标识（Issue #40）：**工具栏 `groupbox` “搜索范围”，宽松档里有按钮“范围：当前目录及子目录”“范围：全盘”（`accessible-checked` 表示当前范围；搜索面板里的同名按钮仍是“当前目录及子目录”“全盘”）；折叠档只有一个按钮“搜索范围”（`accessible-checked` 为全盘，`accessible-value` 为当前范围名）。侧栏回收站在标题“其他”之下，仍是按钮“回收站”。
+
 **对话框与回收站的标识：**应用内对话框是 `groupbox` “对话框”（标题 `text` “对话框标题”、正文“对话框内容”，按钮的 `accessible-label` 即按钮文字：取消／移到回收站／永久删除／知道了）。对话框遮罩覆盖整个窗口，工具栏也有同名的“永久删除”，查找对话框按钮时取位于“对话框标题”下方的那个（见 `delete.rs` 的 `dlg_btn`）。回收站视图有 `groupbox` “回收站提示”和按钮“还原所选项目”；工具栏按钮“删除”“永久删除”，侧栏按钮“回收站”（选中态用 `accessible-checked`）。
 
 **面板限定查找：**双栏时左右面板有同名元素（两个“后退”、两套文件项）。`scenarios.rs` 的 `find`／`find_all` 按“元素中心是否落在该面板（`左面板`／`右面板` groupbox）矩形内”过滤。隐藏面板不在元素树里，状态用 `extras.panes` 读。窄面板网格里屏幕外的项点不到，用最上面一行的项。

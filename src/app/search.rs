@@ -376,6 +376,9 @@ impl Controller {
         let text = self.search.st.borrow().text.clone();
         if !text.is_empty() {
             self.search_run(&text);
+        } else {
+            // 空闲状态只记录选择，下次开始搜索时生效；刷新工具栏的范围入口
+            self.search_sync();
         }
     }
 
@@ -699,7 +702,11 @@ impl Controller {
             if let Some(c) = st.cancel.take() {
                 c.cancel();
             }
-            std::mem::replace(&mut *st, St::idle()).active
+            // 范围选择在关闭搜索后保留：空闲状态的范围入口也是它的唯一入口（Issue #40）
+            let scope_all = st.scope_all;
+            let was = std::mem::replace(&mut *st, St::idle());
+            st.scope_all = scope_all;
+            was.active
         };
         self.search.session.set(self.search.session.get() + 1);
         self.search.hits.borrow_mut().clear();

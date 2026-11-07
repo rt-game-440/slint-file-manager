@@ -7,7 +7,7 @@ import { Icon } from "icons.slint";
 import { IconButton, WindowButton, MenuRow } from "controls.slint";
 import { BrowserPane } from "browser-pane.slint";
 import { ModalDialog } from "dialog.slint";
-import { SearchBox, SearchPanel } from "search.slint";
+import { ScopeSegment, SearchBox, SearchPanel } from "search.slint";
 import { PreviewOverlay } from "preview.slint";
 import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus, PreviewState } from "types.slint";
 
@@ -147,7 +147,7 @@ export component MainWindow inherits Window {
     in property <string> status-message;
     // 侧栏当前项 id（位置与侧栏入口一致时高亮）
     in property <string> sidebar-current;
-    // 侧栏的位置入口（主目录、收藏、磁盘、云盘），Rust 生成；回收站入口见下方静态列表
+    // 侧栏的位置入口（主目录、收藏、磁盘、云盘、回收站），Rust 生成
     in property <[SidebarEntry]> sidebar-places;
     // 活动面板的当前位置是否已收藏
     in property <bool> current-favorite;
@@ -290,10 +290,13 @@ export component MainWindow inherits Window {
     callback search-locate();
     callback search-nav(int);
 
-    // 回收站入口（Issue #8 提供）；其余入口见 sidebar-places
-    property <[SidebarEntry]> sidebar-entries: [
-        { id: "recycle-bin", label: "回收站", icon: "trash", enabled: true, description: "已删除的项目，可还原" },
-    ];
+    // 工具栏分三档（宽度按文字缩放 s 估算，数值由 harness 实测各档所需宽度得出）：
+    // 宽松：全部控件；折叠（compact）：双栏按钮只剩图标、范围入口收成单个切换按钮、永久删除按钮让位
+    // （仍可用 Shift+Delete 或右键菜单）；极窄（tight）：连范围入口也让位（搜索开始后面板里仍可选）。
+    // 目的是搜索框始终保留图标与“搜索…”占位，不被挤成一小条（Issue #40）。
+    property <length> toolbar-avail: root.width - Theme.sidebar-w - 1px;
+    property <bool> toolbar-compact: root.toolbar-avail < 370px + 442px * Theme.text-scale;
+    property <bool> toolbar-tight: root.toolbar-avail < 314px + 332px * Theme.text-scale;
 
     public function begin-edit-address() {
         if (root.active-pane == 0) {
@@ -500,14 +503,6 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                 }
-
-                                for s in root.sidebar-entries: SidebarRow {
-                                    entry: s;
-                                    current: s.id == root.sidebar-current;
-                                    clicked => {
-                                        root.sidebar-clicked(s.id);
-                                    }
-                                }
                             }
                         }
                     }
@@ -621,7 +616,8 @@ export component MainWindow inherits Window {
                                 }
                             }
 
-                            VerticalLayout {
+                            // 折叠态让位：永久删除仍可用 Shift+Delete 或右键菜单
+                            if !root.toolbar-compact: VerticalLayout {
                                 alignment: center;
                                 delete-permanent-button := IconButton {
                                     icon: "trash-x";
@@ -664,7 +660,7 @@ export component MainWindow inherits Window {
 
                                     split-row := HorizontalLayout {
                                         padding-left: 8px;
-                                        padding-right: 10px;
+                                        padding-right: root.toolbar-compact ? 8px : 10px;
                                         spacing: 6px;
                                         Rectangle {
                                             width: Theme.icon-s;
@@ -675,7 +671,7 @@ export component MainWindow inherits Window {
                                             }
                                         }
 
-                                        Text {
+                                        if !root.toolbar-compact: Text {
                                             text: "双栏";
                                             color: root.split ? Theme.accent : Theme.text;
                                             font-size: Theme.font;
@@ -729,6 +725,18 @@ export component MainWindow inherits Window {
 
                             Rectangle {
                                 horizontal-stretch: 1;
+                            }
+
+                            // 搜索范围入口：空闲时也可见可选（Issue #40）
+                            if !root.toolbar-tight: VerticalLayout {
+                                alignment: center;
+                                search-scope := ScopeSegment {
+                                    all: root.search-view.scope-all;
+                                    compact: root.toolbar-compact;
+                                    set-scope(a0) => {
+                                        root.search-set-scope(a0);
+                                    }
+                                }
                             }
 
                             // 搜索入口（A2 位置）：输入即搜（Rust 侧防抖），回车立即搜索
