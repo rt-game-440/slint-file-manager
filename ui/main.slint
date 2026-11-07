@@ -7,9 +7,10 @@ import { Icon } from "icons.slint";
 import { IconButton, WindowButton, MenuRow } from "controls.slint";
 import { BrowserPane } from "browser-pane.slint";
 import { ModalDialog } from "dialog.slint";
-import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry } from "types.slint";
+import { SearchBox, SearchPanel } from "search.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice } from "types.slint";
 
-export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry }
+export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice }
 
 component SidebarRow inherits Rectangle {
     in property <SidebarEntry> entry;
@@ -159,6 +160,10 @@ export component MainWindow inherits Window {
     in property <string> dialog-cancel-label;
     in property <bool> dialog-danger: false;
     in property <int> dialog-token;
+    // 搜索（Issue #11）：搜索框文字、结果面板状态与结果行
+    in-out property <string> search-text;
+    in property <SearchView> search-view;
+    in property <[SearchItem]> search-items;
 
     // 工具栏与键盘作用于活动面板
     property <PaneView> active-view: root.active-pane == 0 ? root.left-view : root.right-view;
@@ -214,6 +219,16 @@ export component MainWindow inherits Window {
     callback sidebar-remove(string);
     callback toggle-favorite();
     callback request-close();
+    callback search-edited(string);
+    callback search-submit();
+    callback search-set-scope(bool);
+    callback search-cancel();
+    callback search-close();
+    callback search-select(int);
+    callback search-open(int);
+    callback search-open-selected();
+    callback search-locate();
+    callback search-nav(int);
 
     // 回收站入口（Issue #8 提供）；其余入口见 sidebar-places
     property <[SidebarEntry]> sidebar-entries: [
@@ -226,6 +241,11 @@ export component MainWindow inherits Window {
         } else {
             right-pane.begin-edit-address();
         }
+    }
+
+    // 聚焦搜索框（Ctrl+F）
+    public function focus-search() {
+        search-box.focus-input();
     }
 
     // 把键盘焦点交给指定面板的内容区（Rust 在活动面板变化后调用）
@@ -241,6 +261,15 @@ export component MainWindow inherits Window {
     shortcuts := FocusScope {
         focus-on-click: false;
         key-pressed(e) => {
+            // 搜索结果面板显示时，浏览面板是隐藏的：面板相关的快捷键（删除、后退、新标签……）一律不响应，
+            // 避免作用到看不见的选择；只保留 Ctrl+F 回到搜索框。
+            if (root.search-view.active) {
+                if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && (e.text == "f" || e.text == "F")) {
+                    root.focus-search();
+                    return accept;
+                }
+                return reject;
+            }
             if (e.modifiers.alt && e.text == Key.LeftArrow) {
                 root.go-back(root.active-pane);
                 return accept;
@@ -263,6 +292,10 @@ export component MainWindow inherits Window {
             }
             if (e.text == Key.F5) {
                 root.refresh(root.active-pane);
+                return accept;
+            }
+            if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && (e.text == "f" || e.text == "F")) {
+                root.focus-search();
                 return accept;
             }
             if ((e.text == Key.F4 && !e.modifiers.control) || (e.modifiers.control && (e.text == "l" || e.text == "L")) || (e.modifiers.alt && (e.text == "d" || e.text == "D"))) {
@@ -480,7 +513,7 @@ export component MainWindow inherits Window {
                                 delete-button := IconButton {
                                     icon: "trash";
                                     label: "删除";
-                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle;
+                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle && !root.search-view.active;
                                     clicked => {
                                         root.delete-selected(root.active-pane, false);
                                     }
@@ -493,7 +526,7 @@ export component MainWindow inherits Window {
                                     icon: "trash-x";
                                     label: "永久删除";
                                     danger: true;
-                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle;
+                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle && !root.search-view.active;
                                     clicked => {
                                         root.delete-selected(root.active-pane, true);
                                     }
@@ -585,43 +618,23 @@ export component MainWindow inherits Window {
                                 horizontal-stretch: 1;
                             }
 
-                            // 搜索入口：保留 A2 位置，搜索在 Issue #11 提供，当前为禁用外观
+                            // 搜索入口（A2 位置）：输入即搜（Rust 侧防抖），回车立即搜索
                             VerticalLayout {
                                 alignment: center;
-                                search-box := Rectangle {
-                                    // 空间不足时让搜索框先收窄（最小 48px），不把整个窗口撑宽
-                                    preferred-width: 220px * Theme.text-scale;
-                                    min-width: 48px;
-                                    height: Theme.control-h;
-                                    border-radius: Theme.control-h / 2;
-                                    background: #f0f1f4;
-                                    border-width: 1px;
-                                    border-color: Theme.divider;
-                                    accessible-role: text-input;
-                                    accessible-label: "搜索";
-                                    accessible-enabled: false;
-                                    accessible-description: "后续版本提供";
-
-                                    HorizontalLayout {
-                                        padding-left: 12px;
-                                        spacing: 6px;
-                                        Rectangle {
-                                            width: Theme.icon-s * 0.9;
-                                            Icon {
-                                                y: (parent.height - self.height) / 2;
-                                                name: "search";
-                                                size: Theme.icon-s * 0.9;
-                                                tint: Theme.text-disabled;
-                                            }
-                                        }
-
-                                        Text {
-                                            text: "搜索（即将提供）";
-                                            color: Theme.text-disabled;
-                                            font-size: Theme.font;
-                                            vertical-alignment: center;
-                                            overflow: elide;
-                                        }
+                                search-box := SearchBox {
+                                    text <=> root.search-text;
+                                    active: root.search-view.active;
+                                    edited(t) => {
+                                        root.search-edited(t);
+                                    }
+                                    accepted => {
+                                        root.search-submit();
+                                    }
+                                    escape => {
+                                        root.search-close();
+                                    }
+                                    nav(d) => {
+                                        root.search-nav(d);
                                     }
                                 }
                             }
@@ -758,7 +771,7 @@ export component MainWindow inherits Window {
                             y: 0px;
                             height: parent.height;
                             width: (root.split || root.active-pane == 0) ? panes-area.pane-w : panes-area.hidden-w;
-                            visible: root.split || root.active-pane == 0;
+                            visible: (root.split || root.active-pane == 0) && !root.search-view.active;
                             pane-id: 0;
                             pane-name: "左面板";
                             pane-active: root.active-pane == 0;
@@ -843,7 +856,7 @@ export component MainWindow inherits Window {
                             y: 0px;
                             height: parent.height;
                             width: (root.split || root.active-pane == 1) ? panes-area.pane-w : panes-area.hidden-w;
-                            visible: root.split || root.active-pane == 1;
+                            visible: (root.split || root.active-pane == 1) && !root.search-view.active;
                             pane-id: 1;
                             pane-name: "右面板";
                             pane-active: root.active-pane == 1;
@@ -915,6 +928,40 @@ export component MainWindow inherits Window {
                                 root.pane-activated(a0);
                             }
                         }
+
+                        // 搜索结果面板：覆盖整个浏览面板区；搜索时浏览面板隐藏（不被读屏或自动化误当作可操作元素）
+                        if root.search-view.active: search-panel := SearchPanel {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            v: root.search-view;
+                            items: root.search-items;
+                            close => {
+                                root.search-close();
+                            }
+                            set-scope(a0) => {
+                                root.search-set-scope(a0);
+                            }
+                            cancel => {
+                                root.search-cancel();
+                            }
+                            select(a0) => {
+                                root.search-select(a0);
+                            }
+                            open(a0) => {
+                                root.search-open(a0);
+                            }
+                            open-selected => {
+                                root.search-open-selected();
+                            }
+                            locate => {
+                                root.search-locate();
+                            }
+                            nav(a0) => {
+                                root.search-nav(a0);
+                            }
+                        }
                     }
                 }
             }
@@ -936,13 +983,13 @@ export component MainWindow inherits Window {
                     spacing: 16px;
 
                     status-label := Text {
-                        text: root.status-text;
+                        text: root.search-view.active ? "搜索结果：" + root.search-view.count + " 项" : root.status-text;
                         color: Theme.text-secondary;
                         font-size: Theme.font-small;
                         vertical-alignment: center;
                         accessible-role: text;
                         accessible-label: "状态";
-                        accessible-value: root.status-text;
+                        accessible-value: self.text;
                     }
 
                     Rectangle {

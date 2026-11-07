@@ -47,8 +47,13 @@ pub fn time(hours: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(BASE_SECS + hours * 3600)
 }
 
+/// 样例目录的父目录。默认 `%TEMP%\sfm-harness`；环境变量 `SFM_HARNESS_DIR` 可改为独立目录，
+/// 供多个工作树并行运行 harness 时互不覆盖（每次运行都会重建该目录下的样例目录，不要指向有用数据的位置）。
 pub fn parent() -> PathBuf {
-    std::env::temp_dir().join("sfm-harness")
+    match std::env::var_os("SFM_HARNESS_DIR") {
+        Some(d) if !d.is_empty() => PathBuf::from(d),
+        _ => std::env::temp_dir().join("sfm-harness"),
+    }
 }
 
 pub fn root() -> PathBuf {
@@ -104,7 +109,7 @@ pub fn dir_time(dir: &Path, t: SystemTime) -> Res<()> {
     Ok(())
 }
 
-fn icacls(args: &[&str]) -> Res<()> {
+pub fn icacls(args: &[&str]) -> Res<()> {
     let out = Command::new("icacls").args(args).output()?;
     if !out.status.success() {
         return Err(format!("icacls {args:?} 失败").into());

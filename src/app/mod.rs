@@ -21,8 +21,10 @@
 
 pub mod live;
 pub mod model;
+pub mod search;
 
 pub use live::{DriveSource, LiveEnv};
+pub use search::{SearchEnv, SearchSnapshot};
 
 pub mod ops;
 use crate::browse::location::{self, Crumb as PathCrumb};
@@ -108,6 +110,8 @@ pub struct Env {
     pub live: LiveEnv,
     /// 删除、回收站枚举与还原的后端：产品为系统回收站，harness 注入临时目录“回收站”。
     pub backend: Arc<dyn Backend>,
+    /// 搜索（见 [`search`]）。
+    pub search: SearchEnv,
 }
 
 impl Env {
@@ -126,14 +130,25 @@ impl Env {
             ),
             store,
             backend: Arc::new(SystemBackend),
+            search: SearchEnv::production(),
         }
     }
 }
 
 enum Msg {
-    Loaded { tab: TabId, loaded: Loaded },
+    Loaded {
+        tab: TabId,
+        loaded: Loaded,
+    },
     OpDone(ops::OpDone),
-    OpenFailed { failed: usize, message: String },
+    OpenFailed {
+        failed: usize,
+        message: String,
+    },
+    Search {
+        session: u64,
+        event: crate::search::Event,
+    },
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -196,6 +211,7 @@ pub struct Controller {
     notice: RefCell<String>,
     saver: slint::Timer,
     live: live::Live,
+    search: search::SearchUi,
 }
 
 impl Drop for Controller {
@@ -254,8 +270,11 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
     window.set_left_tabs(ModelRc::from(ui[0].tabs.clone()));
     window.set_right_tabs(ModelRc::from(ui[1].tabs.clone()));
     window.set_sidebar_places(live.model());
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let search = search::SearchUi::new(env.search, id);
+    window.set_search_items(search.model());
     let c = Rc::new(Controller {
-        id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        id,
         window: window.as_weak(),
         ws,
         ui,
@@ -278,6 +297,7 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         notice: RefCell::new(notice),
         saver: slint::Timer::default(),
         live,
+        search,
     });
     REGISTRY.with(|r| r.borrow_mut().insert(c.id, Rc::downgrade(&c)));
     connect(window, &c);
@@ -351,6 +371,16 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_sidebar_clicked, c => |id| c.sidebar(&id));
     on!(on_sidebar_remove, c => |id| c.sidebar_remove(&id));
     on!(on_toggle_favorite, c => || c.toggle_favorite());
+    on!(on_search_edited, c => |t| c.search_edited(&t));
+    on!(on_search_submit, c => || c.search_submit());
+    on!(on_search_set_scope, c => |all| c.search_set_scope(all));
+    on!(on_search_cancel, c => || c.search_cancel());
+    on!(on_search_close, c => || c.search_close());
+    on!(on_search_select, c => |i| c.search_select(i));
+    on!(on_search_open, c => |i| c.search_open(i));
+    on!(on_search_open_selected, c => || c.search_open_selected());
+    on!(on_search_locate, c => || c.search_locate());
+    on!(on_search_nav, c => |d| c.search_nav(d));
     let weak = w.as_weak();
     w.on_request_close(move || {
         if let Some(w) = weak.upgrade() {
@@ -676,6 +706,7 @@ impl Controller {
 
     /// 导航产生的读取：清提示、记时、排队，并刷新面板（显示“加载中”）。
     fn start(&self, p: usize, job: Job) {
+        self.search_dismiss();
         self.nav_started.set(Some(Instant::now()));
         self.message.borrow_mut().clear();
         self.mark_dirty();
@@ -732,13 +763,13 @@ impl Controller {
             self.on_loaded(job.tab, job.req.run_with(&*self.backend));
             n += 1;
         }
-        n
+        n + self.search_pump(usize::MAX)
     }
 
     /// 手动模式下尚未执行的请求数。
     pub fn pending(&self) -> usize {
         match &self.loader {
-            Loader::Manual(q) => q.borrow().len(),
+            Loader::Manual(q) => q.borrow().len() + self.search.pending(),
             Loader::Threaded => 0,
         }
     }
@@ -750,12 +781,14 @@ impl Controller {
             Msg::OpenFailed { failed, message } => {
                 self.set_message(&format!("有 {failed} 个文件未能打开：{message}"))
             }
+            Msg::Search { session, event } => self.search_event(session, event),
         }
     }
 
     fn on_loaded(&self, tab: TabId, l: Loaded) {
         self.live.note_loaded(tab);
         self.apply_loaded(tab, l);
+        self.search_after_load(tab);
         self.live_after_load(tab);
     }
 

@@ -12,6 +12,7 @@ mod frames;
 mod live;
 mod menu;
 mod scenarios;
+mod search;
 
 use ctx::{Ctx, Res};
 use serde_json::{Value, json};
@@ -354,6 +355,50 @@ fn cmd_live(args: &Args) -> Res<i32> {
     Ok(if fails.is_empty() { 0 } else { 1 })
 }
 
+/// search：搜索脚本（目录／全盘搜索、取消、过期结果、增强后端故障注入与回退），搜索任务手动驱动，结果确定。
+fn cmd_search(args: &Args) -> Res<i32> {
+    let (items, fails) = search::run()?;
+    let out = args.dir("out", &format!("{ARTIFACTS}/state/search.json"));
+    write_json(
+        &out,
+        &json!({"meta": meta(args, 1.0)?, "failures": fails, "steps": items}),
+    )?;
+    println!(
+        "搜索脚本：{} 步，{}；输出 {}",
+        items.len(),
+        if fails.is_empty() {
+            "全部通过"
+        } else {
+            "存在失败"
+        },
+        out.display()
+    );
+    for f in &fails {
+        println!("  失败：{f}");
+    }
+    Ok(if fails.is_empty() { 0 } else { 1 })
+}
+
+/// search-bench：基本搜索的真实规模与耗时。`--dir=目录` 目录范围，`--all` 全部本机磁盘，`--query=` 查询（默认 `.zzzq`，几乎无命中，
+/// 测的是纯遍历），`--repeat=` 次数。只输出统计，不记录路径或文件名；不碰样例目录。
+fn cmd_search_bench(args: &Args) -> Res<i32> {
+    let dir = args.opts.get("dir").map(PathBuf::from);
+    let all = args.opts.contains_key("all");
+    if dir.is_none() && !all {
+        return Err("search-bench 需要 --dir=目录 或 --all true".into());
+    }
+    let query = args.get("query", ".zzzq");
+    let repeat: usize = args.get("repeat", "2").parse()?;
+    let rows = search::bench(dir, all, &query, repeat)?;
+    let out = args.dir("out", &format!("{ARTIFACTS}/state/search-bench.json"));
+    write_json(
+        &out,
+        &json!({"query_len": query.chars().count(), "runs": rows}),
+    )?;
+    println!("统计输出 {}", out.display());
+    Ok(0)
+}
+
 fn cmd_frames(args: &Args) -> Res<i32> {
     let scale: f32 = args.get("scale", "1").parse()?;
     let size = args.size()?;
@@ -435,7 +480,7 @@ fn main() {
     let code = (|| -> Res<i32> {
         let args = Args::parse()?;
         ctx::init_platform();
-        if args.cmd != "review" {
+        if args.cmd != "review" && args.cmd != "search-bench" {
             fixture::ensure()?;
         }
         match args.cmd.as_str() {
@@ -446,9 +491,11 @@ fn main() {
             "compare" => cmd_compare(&args),
             "frames" => cmd_frames(&args),
             "live" => cmd_live(&args),
+            "search" => cmd_search(&args),
+            "search-bench" => cmd_search_bench(&args),
             "review" => cmd_review(&args),
             c => Err(format!(
-                "未知子命令 {c}；可用：tree run snap bless compare frames live review"
+                "未知子命令 {c}；可用：tree run snap bless compare frames live search search-bench review"
             )
             .into()),
         }

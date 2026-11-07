@@ -137,6 +137,8 @@ pub struct Opts {
     pub session: Option<PathBuf>,
     /// 侧栏磁盘／收藏与目录监视的环境；`None` 为惰性环境（无磁盘、无收藏、不监视）
     pub live: Option<LiveEnv>,
+    /// 搜索环境（后端、全盘根目录）；`None` 为惰性环境（手动模式、无增强、全盘根目录为空）
+    pub search: Option<app::SearchEnv>,
 }
 
 impl Default for Opts {
@@ -148,6 +150,7 @@ impl Default for Opts {
             split: false,
             session: None,
             live: None,
+            search: None,
         }
     }
 }
@@ -196,6 +199,7 @@ impl Ctx {
                 fresh_split: o.split,
                 live: o.live.unwrap_or_else(LiveEnv::inert),
                 backend: stash.clone(),
+                search: o.search.unwrap_or_else(app::SearchEnv::inert),
             },
         );
         win.show()?;
