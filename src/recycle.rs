@@ -40,10 +40,10 @@ const SFGAO_FOLDER: u32 = 0x2000_0000;
 const DRIVE_FIXED: u32 = 3;
 
 /// 本线程的 COM 初始化；已用其他套间模型初始化时直接沿用，不重复卸载。
-struct Com(bool);
+pub(crate) struct Com(bool);
 
 impl Com {
-    fn init() -> Com {
+    pub(crate) fn init() -> Com {
         // SAFETY: 标准 COM 初始化；成功（含 S_FALSE）才在 Drop 时配对卸载。
         let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
         Com(hr.is_ok())
@@ -268,7 +268,7 @@ pub fn restore(item: &BinItem) -> OpResult {
 }
 
 /// 探测对目录是否有“新建文件／子文件夹”的权限：只打开目录并申请该访问权，不创建任何东西。
-fn probe_add_access(dir: &Path, is_dir: bool) -> std::io::Result<()> {
+pub(crate) fn probe_add_access(dir: &Path, is_dir: bool) -> std::io::Result<()> {
     use std::os::windows::fs::OpenOptionsExt;
     const FILE_ADD_FILE: u32 = 0x2;
     const FILE_ADD_SUBDIRECTORY: u32 = 0x4;
@@ -285,13 +285,16 @@ fn probe_add_access(dir: &Path, is_dir: bool) -> std::io::Result<()> {
         .map(|_| ())
 }
 
-fn map_hresult(e: &windows::core::Error) -> OpError {
+pub(crate) fn map_hresult(e: &windows::core::Error) -> OpError {
     // HRESULT_FROM_WIN32 的低 16 位是 Win32 错误码
     let code = (e.code().0 as u32) & 0xFFFF;
     let kind = match code {
         5 | 19 => FailKind::AccessDenied,
         2 | 3 => FailKind::NotFound,
         32 | 33 => FailKind::InUse,
+        80 | 183 => FailKind::Exists,
+        39 | 112 => FailKind::DiskFull,
+        21 | 31 | 53 | 55 | 64 | 67 | 1117 | 1167 => FailKind::DeviceGone,
         1223 => FailKind::Aborted,
         _ => FailKind::Other,
     };

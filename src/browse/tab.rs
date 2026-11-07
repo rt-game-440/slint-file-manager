@@ -176,6 +176,8 @@ pub struct Tab {
     stale: bool,
     /// 标签离开可见状态期间没有被监视，再次可见时需要静默刷新。
     needs_refresh: bool,
+    /// 下一次 [`Tab::refresh`] 完成后要选中并聚焦的名称（新建、粘贴、重命名后选中结果）。
+    focus_after: Option<OsString>,
 }
 
 impl Tab {
@@ -447,9 +449,12 @@ impl Tab {
         Some(self.begin(parent, r))
     }
 
-    /// 重新读取当前位置，保留选择。
+    /// 重新读取当前位置，保留选择；若先调用过 [`Tab::set_focus_after`]，则改为读取完成后只选中那个名称。
     pub fn refresh(&mut self) -> Option<LoadRequest> {
         let p = self.location.clone()?;
+        if let Some(name) = self.focus_after.take() {
+            return Some(self.begin(p, Restore::Focus(name)));
+        }
         let selected = self
             .rows
             .iter()
@@ -458,6 +463,21 @@ impl Tab {
             .collect();
         let cursor = self.cursor_name();
         Some(self.begin(p, Restore::Keep { selected, cursor }))
+    }
+
+    /// 让下一次刷新完成后只选中并聚焦 `name`。
+    pub fn set_focus_after(&mut self, name: OsString) {
+        self.focus_after = Some(name);
+    }
+
+    /// 按系统名称找行号。
+    pub fn index_of_name(&self, name: &std::ffi::OsStr) -> Option<usize> {
+        self.rows.iter().position(|r| r.entry.os_name == name)
+    }
+
+    /// 某行的系统名称。
+    pub fn os_name_at(&self, i: usize) -> Option<OsString> {
+        self.rows.get(i).map(|r| r.entry.os_name.clone())
     }
 
     fn begin(&mut self, path: PathBuf, restore: Restore) -> LoadRequest {

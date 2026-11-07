@@ -352,6 +352,119 @@ use crate::search::{
     setup_results as search_results, setup_scanning as search_scanning,
 };
 
+fn rename_edit(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    pick(c, &["季度报告.docx"])?;
+    c.special(Key::F2, &[]);
+    c.advance(16);
+    Ok(())
+}
+
+fn rename_error(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    pick(c, &["会议纪要.txt"])?;
+    c.special(Key::F2, &[]);
+    c.ctl.set_rename_text("季度报告.docx");
+    c.special(Key::Return, &[]);
+    c.advance(16);
+    Ok(())
+}
+
+fn new_menu(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    c.click(&c.button("新建")?);
+    c.advance(50);
+    Ok(())
+}
+
+fn new_folder_editing(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    c.with_mods(&[Key::Control, Key::Shift], || c.key("N"));
+    c.pump();
+    Ok(())
+}
+
+fn cut_state(c: &Ctx) -> Res<()> {
+    open_shots(c)?;
+    pick(c, &["季度报告.docx", "旧照片.webp"])?;
+    c.ctrl("x");
+    c.advance(16);
+    Ok(())
+}
+
+fn paste_conflict(c: &Ctx) -> Res<()> {
+    let d = open_shots(c)?;
+    // 上级目录里放一个与“项目资料”里同名的文件，从子目录复制回来就会冲突
+    fixture::file(&d, "草稿.txt", 64, fixture::time(20))?;
+    c.special(Key::F5, &[]);
+    c.pump();
+    c.open_folder("项目资料")?;
+    pick(c, &["草稿.txt"])?;
+    c.ctrl("c");
+    c.click(&c.button("上一级")?);
+    c.pump();
+    c.ctrl("v");
+    c.advance(16);
+    Ok(())
+}
+
+fn paste_partial(c: &Ctx) -> Res<()> {
+    use slint_file_manager::fileops::{FailKind, Inject};
+    let d = open_shots(c)?;
+    c.special(Key::F5, &[]);
+    c.pump();
+    // 复制“项目资料”里的草稿到上级，其中一个文件注入权限不足
+    fixture::file(&d.join("项目资料"), "附件.txt", 32, fixture::time(7))?;
+    c.open_folder("项目资料")?;
+    c.special(Key::F5, &[]);
+    c.pump();
+    pick(c, &["草稿.txt", "附件.txt"])?;
+    c.ctrl("c");
+    c.stash.inject(
+        d.join("项目资料").join("附件.txt"),
+        Inject::Transfer(FailKind::AccessDenied),
+    );
+    c.click(&c.button("上一级")?);
+    c.pump();
+    c.ctrl("v");
+    c.pump();
+    Ok(())
+}
+
+/// 把左栏（样例目录）的一个文件拖向右栏的文件夹，停在半途不松手：看到跟随提示与目标高亮。
+fn drag_hint(c: &Ctx) -> Res<()> {
+    use slint::ComponentHandle;
+    use slint::platform::{PointerEventButton, WindowEvent};
+    open_shots(c)?;
+    let from = c.item_in(0, "旧照片.webp")?;
+    let (p, s) = (from.absolute_position(), from.size());
+    let a = (p.x + s.width / 2.0, p.y + s.height / 2.0);
+    let to = c.item_in(1, fixture::PHOTOS)?;
+    let (tp, ts) = (to.absolute_position(), to.size());
+    let b = (tp.x + ts.width / 2.0, tp.y + ts.height / 2.0);
+    let w = c.win.window();
+    let pos = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
+    w.dispatch_event(WindowEvent::PointerMoved {
+        position: pos(a.0, a.1),
+    });
+    w.dispatch_event(WindowEvent::PointerPressed {
+        position: pos(a.0, a.1),
+        button: PointerEventButton::Left,
+    });
+    c.advance(20);
+    for (x, y) in [
+        (a.0 + 12.0, a.1 + 12.0),
+        ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0),
+        b,
+    ] {
+        w.dispatch_event(WindowEvent::PointerMoved {
+            position: pos(x, y),
+        });
+        c.advance(20);
+    }
+    Ok(())
+}
+
 const fn s(
     name: &'static str,
     content: &'static str,
@@ -663,6 +776,58 @@ pub const STATIC: &[Scenario] = &[
         split: false,
         thumb_cache: true,
         setup: crate::thumbs::scene_cache_menu,
+    },
+    s(
+        "rename-edit",
+        "选中“季度报告.docx”后按 F2",
+        "该项的名称位置变成带蓝色边框的输入框，里面是“季度报告.docx”，只有“季度报告”被选中（浅蓝选区），“.docx”扩展名没有选中；其余项目照常显示",
+        rename_edit,
+    ),
+    s(
+        "rename-error",
+        "F2 重命名“会议纪要.txt”，改成已存在的“季度报告.docx”后按 Enter",
+        "输入框仍在编辑状态且边框变红；状态栏右侧红色说明“已存在名为‘季度报告.docx’的项目”；没有改动任何文件",
+        rename_error,
+    ),
+    s(
+        "new-menu",
+        "点击工具栏“新建”",
+        "“新建”按钮下方弹出白色圆角菜单：第一项“文件夹”，其后是“文本文档”“RTF 文档”等文件模板",
+        new_menu,
+    ),
+    s(
+        "new-folder-editing",
+        "按 Ctrl+Shift+N 新建文件夹",
+        "列表里立刻出现“新建文件夹”（文件夹排在最前），名称处是输入框且整个名称被选中；状态栏说明已新建",
+        new_folder_editing,
+    ),
+    s(
+        "cut-state",
+        "选中“季度报告.docx”和“旧照片.webp”后按 Ctrl+X",
+        "两个被剪切的项目整体变淡（约 45% 不透明度）但仍保持选中底色，其余项目正常；状态栏提示已剪切 2 项",
+        cut_state,
+    ),
+    s(
+        "paste-conflict",
+        "从“项目资料”复制“草稿.txt”，回到上级后粘贴（上级已有同名文件）",
+        "对话框标题“目标位置已有同名项目”，正文点名“草稿.txt”；按钮从右到左为蓝色“保留两者”、描边“跳过”、描边“取消”；没有“替换”选项",
+        paste_conflict,
+    ),
+    s(
+        "paste-partial",
+        "复制“草稿.txt”和“附件.txt”（后者注入权限不足）并粘贴到上级",
+        "对话框标题“部分项目没有复制”，写明已复制 1 项、未能复制 1 项并点名“附件.txt：没有权限”；背后列表已多出“草稿.txt”（状态栏“6 个项目”）；状态栏右侧红色“部分完成：1 项已复制，1 项未能复制”",
+        paste_partial,
+    ),
+    Scenario {
+        name: "drag-hint",
+        content: "双栏：把左栏的“旧照片.webp”拖向右栏的“照片”文件夹，停在半途不松手",
+        expected: "右栏的“照片”行（或格）带蓝色描边高亮；指针旁有白底蓝边的跟随提示“旧照片.webp → 移动到 照片”（同一磁盘默认移动）；左栏原文件仍在原处",
+        text_scale: 1.0,
+        load: true,
+        split: true,
+        thumb_cache: false,
+        setup: drag_hint,
     },
 ];
 

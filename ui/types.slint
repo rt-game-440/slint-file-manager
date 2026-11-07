@@ -26,6 +26,48 @@ export struct FileItem {
     selected: bool,
     thumb-state: ThumbState,
     thumb: image,
+    // 正在重命名：名称处显示输入框
+    editing: bool,
+    // 已被“剪切”：变淡，粘贴后才会真正移动
+    cut: bool,
+    // 拖放的当前目标文件夹：高亮
+    drop-target: bool,
+}
+
+// 窗口坐标命中的面板与条目（-1 表示不在任何面板／不在任何条目上）。
+export struct DropHit {
+    pane: int,
+    index: int,
+}
+
+// 条目上的指针阶段，用来识别拖放：按下、移动（按住时）、松开、被取消。
+export enum DragPhase { down, move, up, cancel }
+
+// 重命名输入框与 Rust 之间的通道（同一时刻只有一个正在编辑的条目）。
+export global RenameBus {
+    in-out property <string> text;
+    // 名称不合法或重名时的原因（非空时输入框为红色边框，Rust 同时写入状态栏）
+    in property <string> error;
+    // 默认选中的范围：从 0 到该字节偏移（文件不含扩展名）
+    in property <int> select-end;
+    // 第二个参数：是否由失去焦点触发（Enter 为 false）
+    callback commit(string, bool);
+    callback cancel();
+}
+
+// 拖放进行时的视觉状态（Rust 写入）：跟随指针的小标签、提示文字与目标高亮。
+export global DragBus {
+    in property <bool> active;
+    in property <length> x;
+    in property <length> y;
+    // 被拖的内容（“3 个项目”或文件名）
+    in property <string> label;
+    // 放下将发生的事（“复制到 文档”“移动到 下载”“不可放置：……”），与实际执行的操作一致
+    in property <string> hint;
+    in property <bool> hint-ok;
+    // 目标面板；target-index < 0 表示放进该面板当前文件夹，否则放进该行的文件夹
+    in property <int> target-pane: -1;
+    in property <int> target-index: -1;
 }
 
 // 路径导航中的一段；对应的完整路径保存在 Rust 侧。

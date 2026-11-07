@@ -50,6 +50,14 @@ pub enum FailKind {
     DestMissing,
     /// 被系统取消（例如用户在系统提示中拒绝）。
     Aborted,
+    /// 新建、重命名、复制、移动：目标位置已有同名项目，没有覆盖。
+    Exists,
+    /// 磁盘空间不足。
+    DiskFull,
+    /// 设备已断开、网络位置不可用。
+    DeviceGone,
+    /// 不能把文件夹放进它自己里面。
+    Nested,
     Other,
 }
 
@@ -78,6 +86,10 @@ impl OpError {
             FailKind::Conflict => "原位置已有同名项目，未覆盖",
             FailKind::DestMissing => "原文件夹已不存在",
             FailKind::Aborted => "操作被取消",
+            FailKind::Exists => "目标位置已有同名项目，未覆盖",
+            FailKind::DiskFull => "磁盘空间不足",
+            FailKind::DeviceGone => "设备已断开或暂时不可用",
+            FailKind::Nested => "不能把文件夹放进它自己里面",
             FailKind::Other => "操作失败",
         };
         if self.detail.is_empty() || self.kind == FailKind::Unsupported {
@@ -93,6 +105,9 @@ impl OpError {
             Some(2 | 3 | 123) => FailKind::NotFound,
             Some(5 | 19) => FailKind::AccessDenied,
             Some(32 | 33) => FailKind::InUse,
+            Some(80 | 183) => FailKind::Exists,
+            Some(39 | 112) => FailKind::DiskFull,
+            Some(21 | 31 | 53 | 55 | 64 | 67 | 1117 | 1167) => FailKind::DeviceGone,
             _ => match e.kind() {
                 std::io::ErrorKind::NotFound => FailKind::NotFound,
                 std::io::ErrorKind::PermissionDenied => FailKind::AccessDenied,
@@ -126,6 +141,23 @@ pub trait Backend: Send + Sync {
     fn list_bin(&self) -> Result<Vec<BinItem>, String>;
     /// 把一项恢复到原位置。不覆盖已有项目，不自动创建缺失的原目录。
     fn restore(&self, item: &BinItem) -> OpResult;
+    /// 复制或移动一项到完整目标路径 `dest`（调用方已在计划阶段确认其不存在）。目标已存在时必须失败，不得覆盖。
+    /// 默认用文件系统引擎；产品后端改用系统的 `IFileOperation`。
+    fn transfer(&self, src: &Path, dest: &Path, mode: crate::xfer::Mode) -> OpResult {
+        crate::xfer::fs_transfer(src, dest, mode, &crate::xfer::FsOpts::default())
+    }
+    /// 新建文件夹；已存在则失败。
+    fn create_dir(&self, path: &Path) -> OpResult {
+        crate::xfer::fs_create_dir(path)
+    }
+    /// 新建文件并写入 `content`（空文件传空切片）；已存在则失败。
+    fn create_file(&self, path: &Path, content: &[u8]) -> OpResult {
+        crate::xfer::fs_create_file(path, content)
+    }
+    /// 同一文件夹内重命名；目标已存在则失败（只改大小写除外）。
+    fn rename(&self, from: &Path, to: &Path) -> OpResult {
+        crate::xfer::fs_rename(from, to)
+    }
 }
 
 /// 永久删除：文件、文件夹（递归）、符号链接与目录联接（只删链接本身）。
@@ -156,6 +188,10 @@ fn is_junction(md: &std::fs::Metadata) -> bool {
 pub struct SystemBackend;
 
 impl Backend for SystemBackend {
+    fn transfer(&self, src: &Path, dest: &Path, mode: crate::xfer::Mode) -> OpResult {
+        crate::shellop::transfer(src, dest, mode)
+    }
+
     fn recycle(&self, path: &Path) -> OpResult {
         crate::recycle::recycle(path)
     }
@@ -191,6 +227,12 @@ pub enum OpKind {
     Recycle,
     Permanent,
     Restore,
+    Copy,
+    Move,
+    /// 新建文件夹或文件（名称为新项目的名称）。
+    Create,
+    /// 重命名（名称为改名后的名称）。
+    Rename,
 }
 
 /// 一次批量操作的结果。
@@ -198,6 +240,8 @@ pub enum OpKind {
 pub struct Report {
     pub kind: OpKind,
     pub outcomes: Vec<Outcome>,
+    /// 没有执行也不算失败的项（用户选择跳过同名项、移动到原位置）：（名称，原因）。
+    pub skipped: Vec<(String, String)>,
 }
 
 /// 同一份结果的用户可见汇报。
@@ -213,6 +257,14 @@ pub struct Summary {
 const LIST_LIMIT: usize = 8;
 
 impl Report {
+    pub fn new(kind: OpKind, outcomes: Vec<Outcome>) -> Report {
+        Report {
+            kind,
+            outcomes,
+            skipped: Vec::new(),
+        }
+    }
+
     pub fn ok_count(&self) -> usize {
         self.outcomes.iter().filter(|o| o.result.is_ok()).count()
     }
@@ -228,34 +280,78 @@ impl Report {
     /// 汇报文字：全部成功、全部失败、部分成功都如实说明。
     pub fn summary(&self) -> Summary {
         let (ok, fail) = (self.ok_count(), self.fail_count());
+        let skipped = self.skipped.len();
         let done = match self.kind {
             OpKind::Recycle => "移到回收站",
             OpKind::Permanent => "永久删除",
             OpKind::Restore => "还原到原位置",
+            OpKind::Copy => "复制",
+            OpKind::Move => "移动",
+            OpKind::Create => "新建",
+            OpKind::Rename => "重命名",
         };
         let first_name = self.outcomes.first().map(|o| o.name.as_str()).unwrap_or("");
+        let skip_note = if skipped > 0 {
+            format!("，跳过 {skipped} 项")
+        } else {
+            String::new()
+        };
         if fail == 0 {
+            if ok == 0 {
+                // 没有任何项目被处理（全部跳过）
+                let why = self
+                    .skipped
+                    .first()
+                    .map(|(_, w)| w.as_str())
+                    .unwrap_or("没有需要处理的项目");
+                return Summary {
+                    line: format!("没有{done}任何项目：{why}"),
+                    detail: None,
+                };
+            }
             let line = if ok == 1 {
                 match self.kind {
                     OpKind::Recycle => format!("已将“{first_name}”移到回收站"),
                     OpKind::Permanent => format!("已永久删除“{first_name}”"),
                     OpKind::Restore => format!("已将“{first_name}”还原到原位置"),
+                    OpKind::Copy => format!("已复制“{first_name}”"),
+                    OpKind::Move => format!("已移动“{first_name}”"),
+                    OpKind::Create => format!("已新建“{first_name}”"),
+                    OpKind::Rename => format!("已重命名为“{first_name}”"),
                 }
             } else {
                 match self.kind {
                     OpKind::Recycle => format!("已将 {ok} 项移到回收站"),
                     OpKind::Permanent => format!("已永久删除 {ok} 项"),
                     OpKind::Restore => format!("已将 {ok} 项还原到原位置"),
+                    OpKind::Copy => format!("已复制 {ok} 项"),
+                    OpKind::Move => format!("已移动 {ok} 项"),
+                    OpKind::Create => format!("已新建 {ok} 项"),
+                    OpKind::Rename => format!("已重命名 {ok} 项"),
                 }
             };
-            return Summary { line, detail: None };
+            return Summary {
+                line: line + &skip_note,
+                detail: None,
+            };
         }
         let failed_do = match self.kind {
             OpKind::Recycle => "未能移到回收站",
             OpKind::Permanent => "未能删除",
             OpKind::Restore => "未能还原",
+            OpKind::Copy => "未能复制",
+            OpKind::Move => "未能移动",
+            OpKind::Create => "未能新建",
+            OpKind::Rename => "未能重命名",
         };
-        let line = if ok == 0 {
+        let all_aborted = self.failures().all(|(_, e)| e.kind == FailKind::Aborted);
+        let line = if all_aborted && matches!(self.kind, OpKind::Copy | OpKind::Move) {
+            if ok == 0 {
+                format!("已取消，没有{done}任何项目")
+            } else {
+                format!("已取消：已{done} {ok} 项，其余 {fail} 项没有{done}")
+            }
+        } else if ok == 0 {
             if fail == 1 {
                 let (n, e) = self.failures().next().expect("有失败项");
                 format!("{failed_do}“{n}”：{}", e.text())
@@ -263,11 +359,14 @@ impl Report {
                 format!("{fail} 项全部{failed_do}")
             }
         } else {
-            format!("部分完成：{ok} 项已{done}，{fail} 项{failed_do}")
+            format!("部分完成：{ok} 项已{done}，{fail} 项{failed_do}{skip_note}")
         };
         let mut d = String::new();
         if ok > 0 {
             d += &format!("已{done} {ok} 项。\n");
+        }
+        if skipped > 0 {
+            d += &format!("跳过 {skipped} 项（{}）。\n", self.skipped[0].1);
         }
         d += &format!("{failed_do} {fail} 项，这些项目保持原样：\n");
         for (n, e) in self.failures().take(LIST_LIMIT) {
@@ -301,27 +400,27 @@ pub fn run_delete(backend: &dyn Backend, paths: &[PathBuf], mode: DeleteMode) ->
             },
         })
         .collect();
-    Report {
-        kind: match mode {
+    Report::new(
+        match mode {
             DeleteMode::Recycle => OpKind::Recycle,
             DeleteMode::Permanent => OpKind::Permanent,
         },
         outcomes,
-    }
+    )
 }
 
 /// 逐项恢复。
 pub fn run_restore(backend: &dyn Backend, items: &[BinItem]) -> Report {
-    Report {
-        kind: OpKind::Restore,
-        outcomes: items
+    Report::new(
+        OpKind::Restore,
+        items
             .iter()
             .map(|it| Outcome {
                 name: it.name.clone(),
                 result: backend.restore(it),
             })
             .collect(),
-    }
+    )
 }
 
 /// 一批路径涉及的目录（去重，保持出现顺序）：删除后需要刷新显示这些目录的标签。
@@ -348,6 +447,14 @@ pub enum Inject {
     Unsupported,
     /// 恢复该名称的项目时失败。
     Restore(FailKind),
+    /// 以该路径为源的复制／移动失败（`Aborted` 即模拟用户取消）。
+    Transfer(FailKind),
+    /// 复制到名为此值的文件时失败，模拟中途出错（磁盘满、设备断开……），已复制的部分会被清理。
+    TransferFile(String, FailKind),
+    /// 在该路径新建文件或文件夹失败。
+    Create(FailKind),
+    /// 重命名该路径失败。
+    Rename(FailKind),
 }
 
 #[derive(Default)]
@@ -360,6 +467,8 @@ struct StashState {
     clock: Option<SystemTime>,
     /// 用于核对“没有碰真实回收站”的调用计数
     recycled: usize,
+    /// 传输引擎开关：强制按跨卷处理
+    force_cross_volume: bool,
 }
 
 /// 把“回收站”放在 `stash` 目录里的后端：回收 = 移入暂存目录，恢复 = 移回原位置。
@@ -391,6 +500,11 @@ impl StashBackend {
     /// 之后进入“回收站”的项目都记为这个删除时间（harness 截图用，让“删除日期”列确定）。
     pub fn set_clock(&self, t: SystemTime) {
         self.state.lock().unwrap().clock = Some(t);
+    }
+
+    /// 让移动一律按跨卷处理（复制 + 校验 + 删除源），测试跨卷语义。
+    pub fn set_force_cross_volume(&self, on: bool) {
+        self.state.lock().unwrap().force_cross_volume = on;
     }
 
     pub fn clear_injections(&self) {
@@ -484,6 +598,42 @@ impl Backend for StashBackend {
         st.items.remove(&key);
         Ok(())
     }
+
+    fn transfer(&self, src: &Path, dest: &Path, mode: crate::xfer::Mode) -> OpResult {
+        let mut opts = crate::xfer::FsOpts::default();
+        {
+            let st = self.state.lock().unwrap();
+            opts.force_cross_volume = st.force_cross_volume;
+            match st.inject.get(src) {
+                Some(Inject::Transfer(k)) => return Err(OpError::new(*k, "")),
+                Some(Inject::TransferFile(n, k)) => opts.fail_on_file = Some((n.clone(), *k)),
+                _ => {}
+            }
+        }
+        // 锁在复制期间不持有：慢速传输不应阻塞 harness 读状态
+        crate::xfer::fs_transfer(src, dest, mode, &opts)
+    }
+
+    fn create_dir(&self, path: &Path) -> OpResult {
+        if let Some(Inject::Create(k)) = self.state.lock().unwrap().inject.get(path) {
+            return Err(OpError::new(*k, ""));
+        }
+        crate::xfer::fs_create_dir(path)
+    }
+
+    fn create_file(&self, path: &Path, content: &[u8]) -> OpResult {
+        if let Some(Inject::Create(k)) = self.state.lock().unwrap().inject.get(path) {
+            return Err(OpError::new(*k, ""));
+        }
+        crate::xfer::fs_create_file(path, content)
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> OpResult {
+        if let Some(Inject::Rename(k)) = self.state.lock().unwrap().inject.get(from) {
+            return Err(OpError::new(*k, ""));
+        }
+        crate::xfer::fs_rename(from, to)
+    }
 }
 
 #[cfg(test)]
@@ -572,25 +722,16 @@ mod tests {
             name: n.into(),
             result: Ok(()),
         };
-        let r = Report {
-            kind: OpKind::Permanent,
-            outcomes: vec![ok("甲.txt")],
-        };
+        let r = Report::new(OpKind::Permanent, vec![ok("甲.txt")]);
         assert_eq!(r.summary().line, "已永久删除“甲.txt”");
-        let r = Report {
-            kind: OpKind::Restore,
-            outcomes: vec![ok("甲"), ok("乙")],
-        };
+        let r = Report::new(OpKind::Restore, vec![ok("甲"), ok("乙")]);
         assert_eq!(r.summary().line, "已将 2 项还原到原位置");
         assert!(r.summary().detail.is_none());
         let bad = Outcome {
             name: "丙".into(),
             result: Err(OpError::new(FailKind::Conflict, "")),
         };
-        let r = Report {
-            kind: OpKind::Restore,
-            outcomes: vec![bad],
-        };
+        let r = Report::new(OpKind::Restore, vec![bad]);
         assert_eq!(r.summary().line, "未能还原“丙”：原位置已有同名项目，未覆盖");
     }
 
@@ -602,11 +743,7 @@ mod tests {
                 result: Err(OpError::new(FailKind::InUse, "")),
             })
             .collect();
-        let s = Report {
-            kind: OpKind::Permanent,
-            outcomes,
-        }
-        .summary();
+        let s = Report::new(OpKind::Permanent, outcomes).summary();
         assert_eq!(s.line, "12 项全部未能删除");
         assert!(s.detail.unwrap().contains("另有 4 项未列出"));
     }

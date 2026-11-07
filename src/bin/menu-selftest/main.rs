@@ -1630,6 +1630,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             search: slint_file_manager::app::SearchEnv::production(),
             // 右键菜单自测与缩略图无关，关闭以免后台解码干扰计时与对象计数
             thumbs: slint_file_manager::app::ThumbEnv::off(),
+            xfer: slint_file_manager::app::XferEnv::inert(),
         },
     );
     win.window()

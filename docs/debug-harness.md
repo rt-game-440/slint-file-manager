@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario grid-selected --out artifacts/tree.json` | JSON |
 | 磁盘／收藏／目录变化同步（侧栏、收藏持久化、外部变化、后台标签、轮询模式、真实 `subst` 虚拟盘插拔；61 步） | `powershell -File scripts/harness.ps1 live [--review-dir 目录]` | `artifacts/state/live.json`；`--review-dir` 额外输出 3 级审阅截图 |
-| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`） |
+| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义、新建／重命名／剪贴板／拖放流程；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`／`xfer`） |
 | 右键菜单真实窗口自测（真实 Win32 输入、系统菜单、NanaZip 命令产物、GDI 量化；需交互式桌面，约 90 秒） | `powershell -File scripts/verify-menu.ps1`（已含在 `scripts/verify-harness.ps1`） | `artifacts/verify/menu/selftest.json`、`menu-trees.txt`、截图；详见 [shell-context-menu.md](shell-context-menu.md) |
 | 搜索脚本（目录／全盘搜索、增量与取消、旧结果不混入、选择／打开／定位、过期结果、模拟增强后端的就绪与五种故障回退；45 步，搜索任务手动驱动，结果确定） | `powershell -File scripts/harness.ps1 search` | `artifacts/state/search.json` |
 | 基本搜索的真实规模与耗时（只输出统计，不记录路径与文件名；用 release 构建才有意义） | `cargo build --release --features harness --bin harness`，再 `target\release\harness.exe search-bench --dir 目录 --all true --repeat 3` | `artifacts/state/search-bench.json` |
@@ -122,6 +122,7 @@
 - **Issue #7（磁盘、收藏与目录变化）**：所有场景基线重新 `bless`。侧栏由静态占位改为
 - **Issue #8（删除、回收站、还原）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏与侧栏：工具栏在视图按钮之后新增“删除”“永久删除”两个图标按钮和一条分隔线（无选择时为灰色），“双栏”按钮与搜索框因此右移，搜索框在空间不足时先收窄（最小 48px，避免 150% 文字缩放下把窗口撑宽）；侧栏“回收站”由禁用态（灰字）变为可用。内容区、列表与网格像素未变（用旧基线比较，差异图只落在工具栏和侧栏“回收站”行）。同时新增 7 个场景基线（见“新增场景”）。
 - **Issue #10（缩略图）**：所有场景重新 `bless`。所有场景的变化：工具栏“双栏”之后新增“更多”（⋯）按钮，收藏星标与搜索框随之右移（用变基后的旧基线比较确认，列表视图场景的差异只落在工具栏这一段）。网格视图场景（`grid-*`、`text-scale-150` 等）另有：网格单元最小宽度 116px → 124px、上方缩略图区固定 84px（文字缩放时最多放大到 1.5 倍），因此每行列数与图标位置变化；没有缩略图的项目（文件夹、非图片）仍显示类型图标。新增 4 个缩略图场景基线（见“新增场景”）。
+- **Issue #12（新建、重命名、传输）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏：最左侧新增“新建”图标按钮（+），其后的排序、视图、删除、双栏、星标与搜索框因此整体右移，搜索框在空间不足时进一步收窄（150% 文字缩放下尤其明显）；`sort-menu` 的弹出位置随排序按钮右移。内容区、侧栏、列表与网格像素未变（用旧基线比较，差异图只落在工具栏区域）。同时新增 8 个场景基线（见“新增场景”）。
 
 ## 动画逐帧采集
 
@@ -168,6 +169,7 @@
 - 删除与回收站场景（Issue #8，基线 100%／150%，后端为临时目录“回收站”）：`delete-confirm`（多选后 Delete 的移到回收站确认）、`delete-confirm-permanent`（Shift+Delete 的红色危险确认）、`recycle-bin`（三个不同删除时间的项目，列为名称／删除日期／原位置／大小，侧栏选中，提示条与“还原所选项目”）、`recycle-bin-empty`、`delete-partial`（注入权限不足：部分成功说明）、`delete-unsupported`（不支持回收站：只给说明）、`restore-conflict`（还原遇同名冲突的部分成功）。
 - 搜索场景（Issue #11，基线 100%／150%，名称以 `search-` 开头，环境见 `src/bin/harness/search.rs` 的 `showcase_env`：手动模式、模拟增强后端、全盘根目录注入）：`search-scanning`（扫描中，只送达开始与第一批结果）、`search-results`（完成并选中第一项，增强未安装）、`search-empty`、`search-denied`（无权限文件夹被跳过）、`search-all-disks`（全盘，含一个不可访问的根）、`search-no-disks`（没有可搜索的磁盘）、`search-enhanced`（模拟增强就绪，含陈旧索引项被剔除）、`search-fallback-not-running`、`search-fallback-failed`（增强查询中途失败已回退）、`search-cancelled`、`search-results-text-scale-150`。搜索任务在手动模式下排队，`Controller::search_pump(n)` 执行并最多送达 n 个事件，因此能确定地停在“扫描中”。
 - 缩略图场景（Issue #10，基线 100%／150%）：`thumbs-loading`（请求尚未执行的加载占位）、`thumbs-ready`（全部完成，含方向、透明、GIF 第一帧、扩展名不符、损坏与超大尺寸回退）、`thumbs-fallback`（慢文件超时回退）、`thumb-cache-menu`（“更多”菜单）。夹具是样例目录之外的 `%TEMP%\sfm-harness\缩略图样例`（`fixture::THUMB_FILES`，内容由 `thumbs::decode::samples` 确定性生成；不改变样例目录条目数）。harness 的缩略图使用手动调度器：`Ctx::pump` 同时执行缩略图请求（`hold_thumbs` 为真时不执行，用于截“加载中”）；文件名含“慢”的图片先超时，`Controller::finish_slow_thumbs` 迟到补图。`Scenario.thumb_cache` 为真时使用每次清空的持久缓存目录。交互脚本 `thumbs.rs`（12 步）覆盖加载中可选择与打开、换目录作废排队请求、结果内容、迟到补图、写盘、重启复用、修改／改名／删除失效、缓存菜单、清空与容量。
+- 新建、重命名与传输场景（Issue #12，基线 100%／150%，后端为临时目录后端、内存剪贴板）：`rename-edit`（F2 后名称变输入框，只选中不含扩展名的部分）、`rename-error`（改成已存在名称后输入框变红并提示）、`new-menu`（工具栏“新建”弹出的文件夹与模板菜单）、`new-folder-editing`（Ctrl+Shift+N 后新文件夹直接进入重命名）、`cut-state`（Ctrl+X 后条目变淡）、`paste-conflict`（粘贴遇同名：保留两者／跳过／取消三选项）、`paste-partial`（注入权限不足的部分成功汇报）、`drag-hint`（双栏拖动中途：目标文件夹高亮与跟随提示，不松手）。交互脚本见 `src/bin/harness/xfer.rs`；`Ctx` 提供内存剪贴板 `clip` 与拖出记录 `dragged_out`，真实 OLE 拖放不在无头环境运行。
 - 不要为尚不存在的界面预建抽象；界面出现后再在这些入口上扩展。
 
 ## 已知限制与排错

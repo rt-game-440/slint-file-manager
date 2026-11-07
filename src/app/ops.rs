@@ -9,8 +9,15 @@
 //! - **刷新**：完成后重新读取所有显示受影响目录（及回收站）的标签（[`Workspace::refresh_where`]），选择保留，
 //!   失败项因仍在原处而继续显示。回收站视图里不提供删除，也不提供清空。
 
+use super::transfer::{Origin, Pending};
 use super::*;
-use crate::fileops::{BinItem, DeleteMode, OpKind, Report, parent_dirs, run_delete, run_restore};
+use crate::fileops::{
+    BinItem, DeleteMode, FailKind, OpError, OpKind, Outcome, Report, parent_dirs, run_delete,
+    run_restore,
+};
+use crate::shellnew::Template;
+use crate::xfer::{self, Mode, Policy};
+use std::ffi::OsString;
 use std::path::Path;
 
 /// 当前打开的应用内对话框。
@@ -22,6 +29,15 @@ pub enum Dialog {
     },
     /// 只有“知道了”的说明。
     Notice,
+    /// 复制或移动遇到同名项目：保留两者 / 跳过 / 取消。
+    Conflict(Pending),
+}
+
+/// 新建的内容。
+#[derive(Clone)]
+pub enum CreateKind {
+    Folder,
+    File(Template),
 }
 
 /// 一次后台操作完成后回到界面线程的结果。
@@ -31,14 +47,56 @@ pub struct OpDone {
     pub dirs: Vec<PathBuf>,
     /// 回收站内容是否可能变化。
     pub bin_changed: bool,
+    /// 完成后在这个面板（目录一致时）选中并聚焦的名称。
+    pub focus: Option<(usize, PathBuf, OsString)>,
+    /// 新建成功后立刻进入重命名。
+    pub rename_after: bool,
+    /// 剪贴板“剪切”粘贴全部成功时，粘贴所用的剪贴板序号（用来清空剪贴板）。
+    pub clear_clip: Option<u32>,
 }
 
-enum Task {
+impl OpDone {
+    fn basic(report: Report, dirs: Vec<PathBuf>, bin_changed: bool) -> OpDone {
+        OpDone {
+            report,
+            dirs,
+            bin_changed,
+            focus: None,
+            rename_after: false,
+            clear_clip: None,
+        }
+    }
+}
+
+pub(super) enum Task {
     Delete {
         mode: DeleteMode,
         paths: Vec<PathBuf>,
     },
     Restore(Vec<BinItem>),
+    /// 复制或移动（计划已做好、冲突已处理）。
+    Transfer {
+        plan: xfer::Plan,
+        origin: Origin,
+        pane: Option<usize>,
+    },
+    /// 新建文件夹或文件，成功后进入重命名。
+    Create {
+        path: PathBuf,
+        kind: CreateKind,
+        pane: usize,
+    },
+    Rename {
+        from: PathBuf,
+        to: PathBuf,
+        pane: usize,
+    },
+}
+
+fn leaf(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.display().to_string())
 }
 
 impl Task {
@@ -46,11 +104,65 @@ impl Task {
         match self {
             Task::Delete { mode, paths } => {
                 let report = run_delete(backend, &paths, mode);
-                OpDone {
+                OpDone::basic(
                     report,
-                    dirs: parent_dirs(paths.iter().map(PathBuf::as_path)),
-                    bin_changed: mode == DeleteMode::Recycle,
-                }
+                    parent_dirs(paths.iter().map(PathBuf::as_path)),
+                    mode == DeleteMode::Recycle,
+                )
+            }
+            Task::Transfer { plan, origin, pane } => {
+                let srcs: Vec<PathBuf> = plan.jobs.iter().map(|j| j.src.clone()).collect();
+                let dirs = xfer::affected_dirs(&plan.dest_dir, &srcs, plan.mode);
+                let mode = plan.mode;
+                let dest_dir = plan.dest_dir.clone();
+                let first = plan
+                    .jobs
+                    .first()
+                    .and_then(|j| j.dest.file_name())
+                    .map(OsString::from);
+                let report = xfer::run(backend, plan);
+                let clear_clip = match origin {
+                    Origin::Clipboard(seq)
+                        if mode == Mode::Move
+                            && report.fail_count() == 0
+                            && report.ok_count() > 0 =>
+                    {
+                        Some(seq)
+                    }
+                    _ => None,
+                };
+                let mut done = OpDone::basic(report, dirs, false);
+                done.focus = match (pane, first) {
+                    (Some(p), Some(name)) => Some((p, dest_dir, name)),
+                    _ => None,
+                };
+                done.clear_clip = clear_clip;
+                done
+            }
+            Task::Create { path, kind, pane } => {
+                let name = leaf(&path);
+                let result = match &kind {
+                    CreateKind::Folder => backend.create_dir(&path),
+                    CreateKind::File(t) => match t.content() {
+                        Ok(bytes) => backend.create_file(&path, &bytes),
+                        Err(e) => Err(OpError::new(FailKind::Other, e)),
+                    },
+                };
+                let dir = path.parent().map(PathBuf::from).unwrap_or_default();
+                let report = Report::new(OpKind::Create, vec![Outcome { name, result }]);
+                let mut done = OpDone::basic(report, vec![dir.clone()], false);
+                done.focus = Some((pane, dir, OsString::from(leaf(&path))));
+                done.rename_after = true;
+                done
+            }
+            Task::Rename { from, to, pane } => {
+                let name = leaf(&to);
+                let result = backend.rename(&from, &to);
+                let dir = to.parent().map(PathBuf::from).unwrap_or_default();
+                let report = Report::new(OpKind::Rename, vec![Outcome { name, result }]);
+                let mut done = OpDone::basic(report, vec![dir.clone()], false);
+                done.focus = Some((pane, dir, OsString::from(leaf(&to))));
+                done
             }
             Task::Restore(items) => {
                 let report = run_restore(backend, &items);
@@ -61,11 +173,7 @@ impl Task {
                         dirs.push(d);
                     }
                 }
-                OpDone {
-                    report,
-                    dirs,
-                    bin_changed: true,
-                }
+                OpDone::basic(report, dirs, true)
             }
         }
     }
@@ -74,7 +182,17 @@ impl Task {
         let n = match self {
             Task::Delete { paths, .. } => paths.len(),
             Task::Restore(items) => items.len(),
+            Task::Transfer { plan, .. } => plan.jobs.len(),
+            Task::Create { .. } | Task::Rename { .. } => 1,
         };
+        match self {
+            Task::Transfer { plan, .. } => {
+                return format!("正在{} {n} 项…", plan.mode.verb());
+            }
+            Task::Create { path, .. } => return format!("正在新建“{}”…", leaf(path)),
+            Task::Rename { to, .. } => return format!("正在重命名为“{}”…", leaf(to)),
+            _ => {}
+        }
         match self {
             Task::Delete {
                 mode: DeleteMode::Recycle,
@@ -85,6 +203,7 @@ impl Task {
                 ..
             } => format!("正在永久删除 {n} 项…"),
             Task::Restore(_) => format!("正在还原 {n} 项…"),
+            _ => String::new(),
         }
     }
 }
@@ -254,7 +373,7 @@ impl Controller {
 
     // ---------- 对话框 ----------
 
-    fn open_dialog(
+    pub(super) fn open_dialog(
         &self,
         d: Dialog,
         title: &str,
@@ -271,12 +390,13 @@ impl Controller {
         w.set_dialog_body(body.into());
         w.set_dialog_confirm_label(confirm.into());
         w.set_dialog_cancel_label(cancel.into());
+        w.set_dialog_secondary_label("".into());
         w.set_dialog_danger(danger);
         w.set_dialog_token(w.get_dialog_token() + 1);
         w.set_dialog_visible(true);
     }
 
-    fn show_notice(&self, title: &str, body: &str) {
+    pub(super) fn show_notice(&self, title: &str, body: &str) {
         self.open_dialog(Dialog::Notice, title, body, "知道了", "", false);
     }
 
@@ -297,14 +417,26 @@ impl Controller {
             Some(Dialog::ConfirmDelete { mode, paths }) => {
                 self.run_task(Task::Delete { mode, paths })
             }
+            Some(Dialog::Conflict(pend)) => self.resolve_conflict(pend, Policy::KeepBoth),
             Some(Dialog::Notice) | None => {}
+        }
+    }
+
+    /// 对话框的第三个选项（名称冲突时的“跳过”）。
+    pub fn secondary_dialog(&self) {
+        if let Some(Dialog::Conflict(pend)) = self.close_dialog() {
+            self.resolve_conflict(pend, Policy::Skip);
         }
     }
 
     /// 对话框取消（Esc 或“取消”）：什么都不改变。
     pub fn cancel_dialog(&self) {
-        if let Some(Dialog::ConfirmDelete { .. }) = self.close_dialog() {
-            self.set_info("已取消，没有删除任何项目");
+        match self.close_dialog() {
+            Some(Dialog::ConfirmDelete { .. }) => self.set_info("已取消，没有删除任何项目"),
+            Some(Dialog::Conflict(p)) => {
+                self.set_info(&format!("已取消，没有{}任何项目", p.plan.mode.verb()))
+            }
+            _ => {}
         }
     }
 
@@ -320,7 +452,7 @@ impl Controller {
 
     // ---------- 执行与收尾 ----------
 
-    fn run_task(&self, task: Task) {
+    pub(super) fn run_task(&self, task: Task) {
         self.busy.set(true);
         self.set_info(&task.progress_text());
         let backend = self.backend.clone();
@@ -344,7 +476,27 @@ impl Controller {
             report,
             dirs,
             bin_changed,
+            focus,
+            rename_after,
+            clear_clip,
         } = done;
+        // 新建、重命名、粘贴成功后，在发起操作的面板里选中结果
+        if let Some((p, dir, name)) = focus
+            && report.ok_count() > 0
+        {
+            let mut ws = self.ws.borrow_mut();
+            let t = ws.active_tab_mut(p);
+            if t.location().is_some_and(|l| same_dir(l, &dir)) {
+                t.set_focus_after(name.clone());
+                if rename_after {
+                    drop(ws);
+                    self.set_pending_rename(p, name);
+                }
+            }
+        }
+        if let Some(seq) = clear_clip {
+            self.after_moved_from_clipboard(seq);
+        }
         let jobs = self.ws.borrow_mut().refresh_where(|loc| {
             if location::is_recycle_bin(loc) {
                 bin_changed
@@ -360,10 +512,21 @@ impl Controller {
         } else {
             self.set_message(&summary.line);
         }
-        if let Some(detail) = summary.detail {
+        // 用户在系统提示里取消不算出错：只留状态栏一行，不再弹说明框
+        let only_aborted =
+            report.fail_count() > 0 && report.failures().all(|(_, e)| e.kind == FailKind::Aborted);
+        if let Some(detail) = summary.detail
+            && !only_aborted
+        {
             let title = match (report.kind, report.ok_count()) {
                 (OpKind::Restore, 0) => "没有还原任何项目",
                 (OpKind::Restore, _) => "部分项目没有还原",
+                (OpKind::Copy, 0) => "没有复制任何项目",
+                (OpKind::Copy, _) => "部分项目没有复制",
+                (OpKind::Move, 0) => "没有移动任何项目",
+                (OpKind::Move, _) => "部分项目没有移动",
+                (OpKind::Create, _) => "没有新建成功",
+                (OpKind::Rename, _) => "没有重命名成功",
                 (_, 0) => "没有删除任何项目",
                 (_, _) => "部分项目没有删除",
             };

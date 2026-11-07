@@ -7,22 +7,42 @@ use crate::thumbs::{Source, wants_thumbnail};
 use crate::{FileItem, ThumbState, browse::tab::Row};
 use slint::{Model, ModelNotify, ModelTracker};
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::ffi::OsString;
 use std::rc::Rc;
+
+/// 叠加在条目上的临时标记：剪切（变淡）、正在重命名、拖放目标高亮。由控制器写入，模型读取。
+#[derive(Default)]
+pub struct Marks {
+    /// 被剪切的路径（[`crate::xfer::key`] 归一化）。
+    pub cut: HashSet<String>,
+    /// 正在编辑名称的条目：（面板，系统名称）。
+    pub editing: Option<(usize, OsString)>,
+    /// 拖放的当前目标文件夹：（面板，行号）。
+    pub drop: Option<(usize, usize)>,
+}
 
 /// 一个浏览面板当前标签的条目。切换标签时调用 [`ItemsModel::reset`]，模型随即指向新标签的行。
 pub struct ItemsModel {
     ws: Rc<RefCell<Workspace>>,
     thumbs: Rc<Thumbs>,
     pane: usize,
+    marks: Rc<RefCell<Marks>>,
     notify: ModelNotify,
 }
 
 impl ItemsModel {
-    pub fn new(ws: Rc<RefCell<Workspace>>, thumbs: Rc<Thumbs>, pane: usize) -> ItemsModel {
+    pub fn new(
+        ws: Rc<RefCell<Workspace>>,
+        thumbs: Rc<Thumbs>,
+        pane: usize,
+        marks: Rc<RefCell<Marks>>,
+    ) -> ItemsModel {
         ItemsModel {
             ws,
             thumbs,
             pane,
+            marks,
             notify: ModelNotify::default(),
         }
     }
@@ -58,6 +78,9 @@ pub fn to_item(r: &Row) -> FileItem {
         selected: r.selected,
         thumb_state: ThumbState::None,
         thumb: Default::default(),
+        editing: false,
+        cut: false,
+        drop_target: false,
     }
 }
 
@@ -84,6 +107,20 @@ impl Model for ItemsModel {
             let key = Source::new(loc.join(&e.os_name), e.size, e.modified).key();
             (item.thumb_state, item.thumb) = self.thumbs.lookup(key);
         }
+        let m = self.marks.borrow();
+        if let Some((p, name)) = &m.editing
+            && *p == self.pane
+            && r.entry.os_name == *name
+        {
+            item.editing = true;
+        }
+        if !m.cut.is_empty()
+            && !t.is_recycle_bin()
+            && let Some(path) = t.path_of(row)
+        {
+            item.cut = m.cut.contains(&crate::xfer::key(&path));
+        }
+        item.drop_target = m.drop == Some((self.pane, row));
         Some(item)
     }
 

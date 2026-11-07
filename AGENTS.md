@@ -36,5 +36,6 @@ Rust + Slint 工程，仅支持 Windows（见 ADR 0001、0008）。版本、渲�
   - 界面元素需按手册的标识约定写 id 与 `accessible-label`；文字与背景要显式写颜色。
 - 删除、回收站与还原（Delete 移到回收站、Shift+Delete 永久删除，都先弹应用内确认；回收站是虚拟位置 `shell:RecycleBinFolder`，用外壳命名空间读取，视图里“还原所选项目”；不提供清空回收站）：设计与安全约束见 [docs/delete-recycle-bin.md](docs/delete-recycle-bin.md)。代码：`src/fileops.rs`（后端接口、逐项汇报、临时目录“回收站” `StashBackend`）、`src/recycle.rs`（Windows 外壳实现）、`src/app/ops.rs`（确认框与后台执行）。真实回收站测试只用临时夹具，运行与清扫见 `scripts/run-recycle-tests.ps1`。
 - 目录／全盘搜索（基本搜索自研遍历始终可用，Everything 为可选增强；查询语法、状态区分、规模与耗时）：详见 [docs/search.md](docs/search.md)，后端比较与集成契约见 [docs/research/0011-search-backend.md](docs/research/0011-search-backend.md)。代码：`src/search/`、`src/app/search.rs`、`ui/search.slint`。`SFM_SEARCH_BACKEND=basic` 强制只用基本搜索；真实规模测量 `harness search-bench`。
+- 新建、重命名与文件传输（Ctrl+Shift+N／工具栏“新建”、F2 重命名、Ctrl+C/X/V 与资源管理器互通、应用内与资源管理器双向拖放；同卷默认移动、跨卷默认复制，Ctrl 复制、Shift 移动；同名冲突只有“保留两者／跳过／取消”，没有替换，从不静默覆盖或删除）：设计、限制与测试见 [docs/create-rename-transfer.md](docs/create-rename-transfer.md)。代码：`src/naming.rs`（命名规则）、`src/xfer.rs`（传输计划与不覆盖原语）、`src/shellop.rs`（IFileOperation）、`src/clipboard.rs`、`src/dragdrop.rs`（OLE 拖放）、`src/app/transfer.rs`（控制器）。无头交互脚本 `src/bin/harness/xfer.rs`（`scripts/harness.ps1 run`），测试只用临时夹具与内存剪贴板。
 - 视觉参考：仅 [A2](docs/concepts/file-manager/concept.md)；被淘汰的概念图不入库，不得当作依据。
 - Windows 11 尚无环境，兼容性未验证。
