@@ -129,6 +129,8 @@ pub struct Ctx {
     pub clip: Rc<MemClipboard>,
     /// 被拖出窗口的路径记录（harness 不进入系统的模态拖放循环）
     pub dragged_out: Rc<RefCell<Vec<Vec<PathBuf>>>>,
+    /// 系统缩略图替身（记录调用，供断言“云占位只查缓存”等）
+    pub shell: Arc<crate::thumbs::FakeShell>,
     t0: u64,
 }
 
@@ -150,6 +152,8 @@ pub struct Opts {
     pub search: Option<app::SearchEnv>,
     /// 缩略图持久缓存目录；`None` 只用内存缓存（默认）
     pub thumb_cache: Option<PathBuf>,
+    /// 设置文件（`settings.json`，含缩略图缓存上限与 `preview_gif_autoplay`）；`None` 全用默认值
+    pub settings_file: Option<PathBuf>,
 }
 
 /// harness 里文件名含这个字的图片被当作“慢文件”：先超时，之后由 [`Controller::finish_slow_thumbs`] 补图。
@@ -166,6 +170,7 @@ impl Default for Opts {
             live: None,
             search: None,
             thumb_cache: None,
+            settings_file: None,
         }
     }
 }
@@ -199,6 +204,7 @@ impl Ctx {
         let menus = Rc::new(RefCell::new(Vec::new()));
         let clip = Rc::new(MemClipboard::new());
         let dragged_out = Rc::new(RefCell::new(Vec::new()));
+        let fake_shell = Arc::new(crate::thumbs::FakeShell::default());
         let ctl = app::wire(
             &win,
             Env {
@@ -223,7 +229,9 @@ impl Ctx {
                             .is_some_and(|n| n.to_string_lossy().contains(SLOW_MARK))
                     }))),
                     cache_dir: o.thumb_cache,
-                    settings_file: None,
+                    settings_file: o.settings_file,
+                    // 系统缩略图用确定性替身，不依赖本机解码器（真实 Shell 的兼容性另见 `video-compat`）
+                    shell: Some(fake_shell.clone()),
                 },
                 xfer: XferEnv {
                     clipboard: clip.clone(),
@@ -261,6 +269,7 @@ impl Ctx {
             hold_thumbs: Cell::new(false),
             clip,
             dragged_out,
+            shell: fake_shell,
             t0: get_mocked_time(),
         };
         if o.load {

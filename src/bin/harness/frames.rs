@@ -2,7 +2,7 @@
 //! 模拟时钟只验证动画定义本身（时长、缓动、过冲、终态），不能证明真实运行时不卡顿。
 
 use crate::ctx::{Ctx, Image, Res, r3};
-use crate::scenarios::{AnimScenario, TRACKED};
+use crate::scenarios::AnimScenario;
 use serde_json::{Value, json};
 use std::fmt::Write as _;
 use std::fs::File;
@@ -16,9 +16,9 @@ pub struct Sample {
     pub vals: Vec<[f64; 5]>,
 }
 
-fn sample(ctx: &Ctx, frame: usize, t_ms: u64) -> Res<Sample> {
+fn sample(ctx: &Ctx, frame: usize, t_ms: u64, tracked: Tracked) -> Res<Sample> {
     let mut vals = Vec::new();
-    for (_, id) in TRACKED {
+    for (_, id) in tracked {
         let e = ctx.by_id(id)?;
         let (p, s) = (e.absolute_position(), e.size());
         vals.push([
@@ -37,12 +37,15 @@ fn sample(ctx: &Ctx, frame: usize, t_ms: u64) -> Res<Sample> {
     })
 }
 
+/// 被跟踪的元素：（显示名，元素标识）。
+type Tracked = &'static [(&'static str, &'static str)];
+
 const PROPS: [&str; 5] = ["x", "y", "w", "h", "opacity"];
 
 /// 每个属性的起点、终点、极值、过冲与稳定时间。
-fn summary(samples: &[Sample]) -> Value {
+fn summary(samples: &[Sample], tracked: Tracked) -> Value {
     let mut out = serde_json::Map::new();
-    for (ti, (name, _)) in TRACKED.iter().enumerate() {
+    for (ti, (name, _)) in tracked.iter().enumerate() {
         let mut props = serde_json::Map::new();
         for (pi, p) in PROPS.iter().enumerate() {
             let series: Vec<f64> = samples.iter().map(|s| s.vals[ti][pi]).collect();
@@ -75,9 +78,9 @@ fn summary(samples: &[Sample]) -> Value {
     Value::Object(out)
 }
 
-fn csv(samples: &[Sample]) -> String {
+fn csv(samples: &[Sample], tracked: Tracked) -> String {
     let mut s = String::from("frame,t_ms,mock_time_ms");
-    for (name, _) in TRACKED {
+    for (name, _) in tracked {
         for p in PROPS {
             let _ = write!(s, ",{name}_{p}");
         }
@@ -113,7 +116,7 @@ pub fn capture(ctx: &Ctx, sc: &AnimScenario, p: &Params, out: &Path) -> Res<Valu
     let mut factor = (0u32, 0u32);
     for i in 0..=n {
         let t = i as u64 * p.interval_ms;
-        let s = sample(ctx, i, t)?;
+        let s = sample(ctx, i, t, sc.tracked)?;
         let img = ctx.snapshot()?;
         img.write_png(&out.join(format!("frame_{i:04}_t{t:04}ms.png")))?;
         if factor.0 == 0 {
@@ -126,11 +129,11 @@ pub fn capture(ctx: &Ctx, sc: &AnimScenario, p: &Params, out: &Path) -> Res<Valu
             ctx.advance(p.interval_ms);
         }
     }
-    std::fs::write(out.join("curve.csv"), csv(&samples))?;
-    let sum = summary(&samples);
+    std::fs::write(out.join("curve.csv"), csv(&samples, sc.tracked))?;
+    let sum = summary(&samples, sc.tracked);
     let curve = json!({
         "scenario": sc.name, "interval_ms": p.interval_ms, "duration_ms": p.duration_ms,
-        "tracked": TRACKED.iter().map(|(n, id)| json!({"name": n, "id": id})).collect::<Vec<_>>(),
+        "tracked": sc.tracked.iter().map(|(n, id)| json!({"name": n, "id": id})).collect::<Vec<_>>(),
         "properties": PROPS,
         "samples": samples.iter().map(|s| json!({"frame": s.frame, "t_ms": s.t_ms, "mock_time_ms": s.mock_ms, "values": s.vals})).collect::<Vec<_>>(),
         "summary": sum,

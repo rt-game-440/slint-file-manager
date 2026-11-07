@@ -10,10 +10,11 @@
 | --- | --- | --- |
 | 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario grid-selected --out artifacts/tree.json` | JSON |
 | 磁盘／收藏／目录变化同步（侧栏、收藏持久化、外部变化、后台标签、轮询模式、真实 `subst` 虚拟盘插拔；61 步） | `powershell -File scripts/harness.ps1 live [--review-dir 目录]` | `artifacts/state/live.json`；`--review-dir` 额外输出 3 级审阅截图 |
-| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义、新建／重命名／剪贴板／拖放流程；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`／`xfer`） |
+| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义、新建／重命名／剪贴板／拖放流程、缩略图、大图预览、系统缩略图；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`／`xfer`／`thumbs`／`preview`／`shell`） |
 | 右键菜单真实窗口自测（真实 Win32 输入、系统菜单、NanaZip 命令产物、GDI 量化；需交互式桌面，约 90 秒） | `powershell -File scripts/verify-menu.ps1`（已含在 `scripts/verify-harness.ps1`） | `artifacts/verify/menu/selftest.json`、`menu-trees.txt`、截图；详见 [shell-context-menu.md](shell-context-menu.md) |
 | 搜索脚本（目录／全盘搜索、增量与取消、旧结果不混入、选择／打开／定位、过期结果、模拟增强后端的就绪与五种故障回退；45 步，搜索任务手动驱动，结果确定） | `powershell -File scripts/harness.ps1 search` | `artifacts/state/search.json` |
 | 基本搜索的真实规模与耗时（只输出统计，不记录路径与文件名；用 release 构建才有意义） | `cargo build --release --features harness --bin harness`，再 `target\release\harness.exe search-bench --dir 目录 --all true --repeat 3` | `artifacts/state/search-bench.json` |
+| 真实 Shell 的视频缩略图兼容性（需 `scripts/make-video-fixtures.ps1` 先生成夹具，需 ffmpeg；只读夹具，结果取决于本机解码器；产出编码兼容表） | `powershell -File scripts/make-video-fixtures.ps1`，再 `powershell -File scripts/harness.ps1 video-compat` | `artifacts/state/video-compat.json`、`artifacts/video-compat/*.png`；表见 [thumbnails.md](thumbnails.md#视频编码兼容表) |
 | 截图（100% 与 150%） | `powershell -File scripts/harness.ps1 snap` | `artifacts/snapshots/current/*.png` + `.json` |
 | 截图并与基线比较，输出差异图 | `powershell -File scripts/harness.ps1 compare` | `artifacts/snapshots/diff/*.diff.png`、`compare-report.json` |
 | 更新基线（人工确认后提交） | `powershell -File scripts/harness.ps1 bless` | `tests/baselines/` |
@@ -124,6 +125,8 @@
 - **Issue #10（缩略图）**：所有场景重新 `bless`。所有场景的变化：工具栏“双栏”之后新增“更多”（⋯）按钮，收藏星标与搜索框随之右移（用变基后的旧基线比较确认，列表视图场景的差异只落在工具栏这一段）。网格视图场景（`grid-*`、`text-scale-150` 等）另有：网格单元最小宽度 116px → 124px、上方缩略图区固定 84px（文字缩放时最多放大到 1.5 倍），因此每行列数与图标位置变化；没有缩略图的项目（文件夹、非图片）仍显示类型图标。新增 4 个缩略图场景基线（见“新增场景”）。
 - **Issue #12（新建、重命名、传输）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏：最左侧新增“新建”图标按钮（+），其后的排序、视图、删除、双栏、星标与搜索框因此整体右移，搜索框在空间不足时进一步收窄（150% 文字缩放下尤其明显）；`sort-menu` 的弹出位置随排序按钮右移，`thumb-cache-menu` 的弹出位置随“更多”按钮右移。内容区、侧栏、列表、网格与搜索面板像素未变（与合入 #10、#11 之后的 main 基线逐像素比较，工具栏以下区域的差异只有上述两个弹出菜单和 150% 文字缩放下搜索框下沿 3 像素）。同时新增 8 个场景基线（见“新增场景”）。
 
+- **Issue #13（图片大图预览与视频缩略图）**：只有 `thumbs-loading`（100%／150%）的基线重新 `bless`，变化只有一处：夹具里的 TIFF 单元由“类型图标”变为“加载中占位”，原因是 TIFF 现在走系统缩略图车道，harness 的 `hold_thumbs` 下该请求尚未执行（浅灰圆角占位 + 淡色图标）；其余原有基线逐像素未变（compare 一致）。新增 8 个预览场景基线（见“新增场景”）。
+
 ## 动画逐帧采集
 
 `frames` 用模拟时钟按固定间隔（默认 16ms）推进，在每一帧导出：
@@ -133,7 +136,7 @@
 - `contact-sheet.png`：联系表，每格上方左为帧号、右为毫秒。
 - `anim.gif`：半尺寸动图，供 frame-inspect 和 3 级审阅使用。
 
-默认值：`--interval 16`（毫秒）、`--duration 600`（毫秒）。动画时长超过 600ms 时要加大 `--duration`，否则稳定时间会被截断。输出目录默认 `artifacts/frames/<场景>_<尺寸>_<缩放>/`，**重复采集会覆盖**；要对比改动前后，先用 `--out` 指到不同目录。目前 `TRACKED` 只跟踪 `BrowserPane::loading-indicator`（动画场景 `loading-appear`：进入目录但读取未完成，提示延迟 150ms 后 180ms 淡入）。
+默认值：`--interval 16`（毫秒）、`--duration 600`（毫秒）。动画时长超过 600ms 时要加大 `--duration`，否则稳定时间会被截断。输出目录默认 `artifacts/frames/<场景>_<尺寸>_<缩放>/`，**重复采集会覆盖**；要对比改动前后，先用 `--out` 指到不同目录。目前 `TRACKED` 只跟踪 `BrowserPane::loading-indicator`（动画场景 `loading-appear`：进入目录但读取未完成，提示延迟 150ms 后 180ms 淡入）。Issue #13 追加预览覆盖层：动画场景 `preview-appear`（空格打开预览，覆盖层 160ms ease-out 淡入；用 `--scenario preview-appear --duration 320` 采集）跟踪 `PreviewOverlay::stage`（整个画面区）与 `PreviewOverlay::pic`（图片本体），`frames` 对其曲线做断言（不透明度 0→1、单调、无过冲、稳定时间 100–200ms、图片几何不变），断言失败退出码非 0；`verify-harness.ps1` 会采集两次并比较逐字节一致。
 
 核对方法：看 `summary`（时长≈稳定时间、过冲量、终态），再看联系表确认视觉。同一动画重复采集产物逐字节一致（`verify-harness.ps1` 会检查）。改了 `animate` 的 `duration` 或 `easing`，`summary.settle_ms`、过冲和曲线都会变。
 
@@ -170,6 +173,7 @@
 - 搜索场景（Issue #11，基线 100%／150%，名称以 `search-` 开头，环境见 `src/bin/harness/search.rs` 的 `showcase_env`：手动模式、模拟增强后端、全盘根目录注入）：`search-scanning`（扫描中，只送达开始与第一批结果）、`search-results`（完成并选中第一项，增强未安装）、`search-empty`、`search-denied`（无权限文件夹被跳过）、`search-all-disks`（全盘，含一个不可访问的根）、`search-no-disks`（没有可搜索的磁盘）、`search-enhanced`（模拟增强就绪，含陈旧索引项被剔除）、`search-fallback-not-running`、`search-fallback-failed`（增强查询中途失败已回退）、`search-cancelled`、`search-results-text-scale-150`。搜索任务在手动模式下排队，`Controller::search_pump(n)` 执行并最多送达 n 个事件，因此能确定地停在“扫描中”。
 - 缩略图场景（Issue #10，基线 100%／150%）：`thumbs-loading`（请求尚未执行的加载占位）、`thumbs-ready`（全部完成，含方向、透明、GIF 第一帧、扩展名不符、损坏与超大尺寸回退）、`thumbs-fallback`（慢文件超时回退）、`thumb-cache-menu`（“更多”菜单）。夹具是样例目录之外的 `%TEMP%\sfm-harness\缩略图样例`（`fixture::THUMB_FILES`，内容由 `thumbs::decode::samples` 确定性生成；不改变样例目录条目数）。harness 的缩略图使用手动调度器：`Ctx::pump` 同时执行缩略图请求（`hold_thumbs` 为真时不执行，用于截“加载中”）；文件名含“慢”的图片先超时，`Controller::finish_slow_thumbs` 迟到补图。`Scenario.thumb_cache` 为真时使用每次清空的持久缓存目录。交互脚本 `thumbs.rs`（12 步）覆盖加载中可选择与打开、换目录作废排队请求、结果内容、迟到补图、写盘、重启复用、修改／改名／删除失效、缓存菜单、清空与容量。
 - 新建、重命名与传输场景（Issue #12，基线 100%／150%，后端为临时目录后端、内存剪贴板）：`rename-edit`（F2 后名称变输入框，只选中不含扩展名的部分）、`rename-error`（改成已存在名称后输入框变红并提示）、`new-menu`（工具栏“新建”弹出的文件夹与模板菜单）、`new-folder-editing`（Ctrl+Shift+N 后新文件夹直接进入重命名）、`cut-state`（Ctrl+X 后条目变淡）、`paste-conflict`（粘贴遇同名：保留两者／跳过／取消三选项）、`paste-partial`（注入权限不足的部分成功汇报）、`drag-hint`（双栏拖动中途：目标文件夹高亮与跟随提示，不松手）。交互脚本见 `src/bin/harness/xfer.rs`；`Ctx` 提供内存剪贴板 `clip` 与拖出记录 `dragged_out`，真实 OLE 拖放不在无头环境运行。
+- 预览与系统缩略图场景（Issue #13，基线 100%／150%）：`preview-fit`（适应窗口）、`preview-one-to-one`（1:1，大图可滚动）、`preview-loading`（首次加载中）、`preview-failed`（损坏）、`preview-too-large`（过大）、`preview-gif-playing`（GIF 自动播放，固定在某一帧）、`preview-gif-first-frame`（GIF 第一帧，用户选择“默认第一帧”时的样子）、`preview-text-scale-150`。预览解码用 `Loader::Manual`，`Ctx::pump` 之外用 `pump_preview` 推进；GIF 由 Slint 计时器推进，harness 的模拟时钟确定地推进帧。`Opts.settings_file` 指向临时 `settings.json`，用于 `preview_gif_autoplay: false` 等设置。系统缩略图在 harness 里是确定性替身 `FakeShell`（文件头 `FAKEVID` → 256×144 图案；路径含“缓存命中”时仅缓存查询命中；记录每次调用的 `(路径, 是否仅缓存)`，供断言“云文件只走仅缓存”“缓存复用后不再提取”），**不依赖本机解码器**；真实 Shell 用 `video-compat`。交互脚本 `preview`（21 步）与 `shell`（4 步）见 `src/bin/harness/preview.rs`。
 - 不要为尚不存在的界面预建抽象；界面出现后再在这些入口上扩展。
 
 ## 已知限制与排错

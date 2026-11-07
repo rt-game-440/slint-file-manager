@@ -24,8 +24,16 @@ pub struct Scenario {
     pub setup: fn(&Ctx) -> Res<()>,
 }
 
-/// 逐帧采集时被跟踪的元素。
-pub const TRACKED: &[(&str, &str)] = &[("loading", "BrowserPane::loading-indicator")];
+/// 逐帧采集时被跟踪的元素（显示名，元素标识）。
+pub const LOADING_TRACKED: &[(&str, &str)] = &[("loading", "BrowserPane::loading-indicator")];
+/// 预览层：整个画面区（含继承自预览层根的不透明度）与图片本体。
+pub const PREVIEW_TRACKED: &[(&str, &str)] = &[
+    ("overlay", "PreviewOverlay::stage"),
+    ("picture", "PreviewOverlay::pic"),
+];
+
+/// 曲线摘要断言：通过返回 `Ok`，否则给出原因。
+pub type CurveCheck = fn(&Value) -> Result<(), String>;
 
 impl Ctx {
     /// 按无障碍角色与标签查找唯一元素（Text 会以自身文字作为标签，需按角色区分）。
@@ -752,7 +760,7 @@ pub const STATIC: &[Scenario] = &[
     s(
         "thumbs-loading",
         "进入缩略图样例，缩略图请求尚未执行（选中 01 风景.webp）",
-        "10 个图片文件显示浅灰圆角占位与淡色图片图标（加载中）；说明.txt 与不支持的 .tif 显示普通类型图标；网格单元比旧版高（缩略图区 84px），名称在下方；选中态照常显示",
+        "10 个图片文件与 12 不支持.tif（TIFF 交给系统缩略图，请求前同样算“加载中”）显示浅灰圆角占位与淡色图片图标；说明.txt 显示普通文档图标；网格单元比旧版高（缩略图区 84px），名称在下方；选中态照常显示",
         crate::thumbs::scene_loading,
     ),
     s(
@@ -829,6 +837,59 @@ pub const STATIC: &[Scenario] = &[
         thumb_cache: false,
         setup: drag_hint,
     },
+    // ---------- 大图预览（Issue #13） ----------
+    s(
+        "preview-fit",
+        "缩略图样例里选中“02 横拍竖看.jpg”按空格：预览层（适应窗口，图片已解码）",
+        "整个窗口被深色不透明层盖住（下面的界面完全不可见）；顶栏左为文件名“02 横拍竖看.jpg”，右为“2 / 10”与“适应窗口”（勾选）“100%”“关闭预览”；中间是竖图（EXIF 方向已校正，红块在右上），完整缩在画面内、不放大；左右各有圆形箭头；底栏左为“640 × 960 像素 · 33 KB”，右为快捷键提示",
+        crate::preview::scene_fit,
+    ),
+    s(
+        "preview-one-to-one",
+        "选中“01 风景.webp”（1200×800，比窗口大）后按空格再按 1：实际大小",
+        "图片按 1:1 显示，比画面区大，可拖动查看（左上角部分）；“100%”按钮为勾选态、“适应窗口”未勾选；信息栏“1200 × 800 像素”",
+        crate::preview::scene_one_to_one,
+    ),
+    s(
+        "preview-loading",
+        "选中“01 风景.webp”按空格，解码尚未完成",
+        "画面区中间显示“正在加载…”（浅灰字），没有图片；顶栏已显示文件名与位置“1 / 10”；“适应窗口”“100%”灰色不可点；“关闭预览”可用；底栏信息为空",
+        crate::preview::scene_loading,
+    ),
+    s(
+        "preview-failed",
+        "选中损坏的“08 损坏.webp”按空格",
+        "画面区居中：白色粗体“无法预览这张图片”，下面浅灰说明“图片内容已损坏或不完整，无法显示”；左右箭头仍在（可继续切换）；缩放按钮灰色；不弹对话框",
+        crate::preview::scene_failed,
+    ),
+    s(
+        "preview-too-large",
+        "选中声明 30000×30000 像素的“09 超大尺寸.png”按空格",
+        "画面区居中：“无法预览这张图片”，说明“图片过大（30000 × 30000 像素），超出预览的内存上限，没有加载。可用默认应用打开。”；没有加载图片（界面不卡）",
+        crate::preview::scene_too_large,
+    ),
+    s(
+        "preview-gif-playing",
+        "“04 动图.gif”（两帧：红图案、纯蓝）按空格并自动播放，截取第二帧",
+        "画面为纯蓝（第二帧）；顶栏多一个“暂停动画”按钮；信息栏“400 × 300 像素 · … · 动图 2 帧”；底栏提示多“P 播放／暂停”。这是 GIF 策略的“自动播放”原型",
+        crate::preview::scene_gif_playing,
+    ),
+    s(
+        "preview-gif-first-frame",
+        "“04 动图.gif”按空格后立刻按 P 暂停（等同“默认只显示第一帧”的原型）",
+        "画面为第一帧（红色图案，不是纯蓝）；顶栏按钮为“播放动画”；其余同上。这是 GIF 策略的“只显示第一帧、需要时手动播放”原型",
+        crate::preview::scene_gif_first_frame,
+    ),
+    Scenario {
+        name: "preview-text-scale-150",
+        content: "文字大小 150% 下的预览（选中“02 横拍竖看.jpg”）",
+        expected: "顶栏的文件名、位置与三个按钮随文字放大后不重叠不截断（文件名过长时省略号）；底栏信息与快捷键提示不叠在一起；图片仍完整居中",
+        text_scale: 1.5,
+        load: true,
+        split: false,
+        thumb_cache: false,
+        setup: crate::preview::scene_fit,
+    },
 ];
 
 /// 动画场景：在完成首次加载的窗口上，`start` 触发动画。
@@ -837,6 +898,10 @@ pub struct AnimScenario {
     pub content: &'static str,
     pub expected: &'static str,
     pub start: fn(&Ctx) -> Res<()>,
+    /// 逐帧跟踪的元素
+    pub tracked: &'static [(&'static str, &'static str)],
+    /// 对曲线摘要的断言（`None` 只采集不断言）
+    pub check: Option<CurveCheck>,
 }
 
 fn start_loading(c: &Ctx) -> Res<()> {
@@ -845,12 +910,24 @@ fn start_loading(c: &Ctx) -> Res<()> {
     Ok(())
 }
 
-pub const ANIM: &[AnimScenario] = &[AnimScenario {
-    name: "loading-appear",
-    content: "进入目录后读取一直未完成时，加载提示的出现过程",
-    expected: "加载提示不透明度在前 150ms 保持 0（快速目录不闪烁），随后 180ms ease-out 淡入到 1；进度条在顶部循环移动",
-    start: start_loading,
-}];
+pub const ANIM: &[AnimScenario] = &[
+    AnimScenario {
+        name: "loading-appear",
+        content: "进入目录后读取一直未完成时，加载提示的出现过程",
+        expected: "加载提示不透明度在前 150ms 保持 0（快速目录不闪烁），随后 180ms ease-out 淡入到 1；进度条在顶部循环移动",
+        start: start_loading,
+        tracked: LOADING_TRACKED,
+        check: None,
+    },
+    AnimScenario {
+        name: "preview-appear",
+        content: "在缩略图样例里选中“02 横拍竖看.jpg”按空格，大图预览层打开（图片已解码）的出现过程",
+        expected: "预览层整体不透明度从 0 起 160ms ease-out 淡入到 1，单调上升、无过冲、无闪烁；图片本体位置与大小在整个过程中不变（只淡入，不缩放不位移）；终态为深色遮罩、顶栏、居中的竖图与底栏",
+        start: crate::preview::start_appear,
+        tracked: PREVIEW_TRACKED,
+        check: Some(crate::preview::check_appear),
+    },
+];
 
 pub fn find_static(name: &str) -> Res<&'static Scenario> {
     STATIC.iter().find(|s| s.name == name).ok_or_else(|| {

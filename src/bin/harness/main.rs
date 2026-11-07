@@ -1,4 +1,4 @@
-﻿//! 调试 harness：无头驱动界面、导出元素树、确定性截图与基线比较、动画逐帧采集、生成审阅材料。
+//! 调试 harness：无头驱动界面、导出元素树、确定性截图与基线比较、动画逐帧采集、生成审阅材料。
 //! 用法见 docs/debug-harness.md；命令封装在 scripts/harness.ps1。
 //! 必须以 `--features harness` 构建，发布产物不含本程序。
 
@@ -11,9 +11,11 @@ mod fixture;
 mod frames;
 mod live;
 mod menu;
+mod preview;
 mod scenarios;
 mod search;
 mod thumbs;
+mod videos;
 mod xfer;
 
 use ctx::{Ctx, Res};
@@ -133,6 +135,8 @@ fn cmd_run(args: &Args) -> Res<i32> {
         let (context, f5) = menu::context(size, scale).map_err(|e| format!("[右键菜单] {e}"))?;
         let (thumbs, f6) = thumbs::thumbs(size, scale).map_err(|e| format!("[缩略图] {e}"))?;
         let (xf, f7) = xfer::xfer(size, scale).map_err(|e| format!("[新建传输] {e}"))?;
+        let (prev, f8) = preview::preview(size, scale).map_err(|e| format!("[预览] {e}"))?;
+        let (shell, f9) = preview::shell(size, scale).map_err(|e| format!("[系统缩略图] {e}"))?;
         fails.extend(f1.into_iter().map(|f| format!("[单栏] {f}")));
         fails.extend(f2.into_iter().map(|f| format!("[双栏] {f}")));
         fails.extend(f3.into_iter().map(|f| format!("[恢复] {f}")));
@@ -140,14 +144,16 @@ fn cmd_run(args: &Args) -> Res<i32> {
         fails.extend(f5.into_iter().map(|f| format!("[右键菜单] {f}")));
         fails.extend(f6.into_iter().map(|f| format!("[缩略图] {f}")));
         fails.extend(f7.into_iter().map(|f| format!("[新建传输] {f}")));
-        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context, "thumbs": thumbs, "xfer": xf}));
+        fails.extend(f8.into_iter().map(|f| format!("[预览] {f}")));
+        fails.extend(f9.into_iter().map(|f| format!("[系统缩略图] {f}")));
+        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context, "thumbs": thumbs, "xfer": xf, "preview": prev, "shell": shell}));
     }
     let consistent = runs.windows(2).all(|w| w[0] == w[1]);
     if !consistent {
         fails.push("重复运行的状态记录不一致".into());
         // 指出第一处不同的步骤与字段，便于定位不确定性来源
         'outer: for sec in [
-            "single", "dual", "restore", "delete", "context", "thumbs", "xfer",
+            "single", "dual", "restore", "delete", "context", "thumbs", "xfer", "preview", "shell",
         ] {
             let (a, b) = (&runs[0][sec], &runs[1][sec]);
             for (x, y) in a
@@ -176,7 +182,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
                 "failures": fails, "steps": runs[0]}),
     )?;
     println!(
-        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步、缩略图 {} 步、新建重命名传输 {} 步，重复 {repeat} 次，{}；输出 {}",
+        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步、缩略图 {} 步、新建重命名传输 {} 步、大图预览 {} 步、系统缩略图 {} 步，重复 {repeat} 次，{}；输出 {}",
         runs[0]["single"].as_array().map_or(0, |a| a.len()),
         runs[0]["dual"].as_array().map_or(0, |a| a.len()),
         runs[0]["restore"].as_array().map_or(0, |a| a.len()),
@@ -184,6 +190,8 @@ fn cmd_run(args: &Args) -> Res<i32> {
         runs[0]["context"].as_array().map_or(0, |a| a.len()),
         runs[0]["thumbs"].as_array().map_or(0, |a| a.len()),
         runs[0]["xfer"].as_array().map_or(0, |a| a.len()),
+        runs[0]["preview"].as_array().map_or(0, |a| a.len()),
+        runs[0]["shell"].as_array().map_or(0, |a| a.len()),
         if fails.is_empty() {
             "全部断言通过且结果一致"
         } else {
@@ -424,7 +432,8 @@ fn cmd_frames(args: &Args) -> Res<i32> {
     );
     let c = Ctx::new(size, scale)?;
     let summary = frames::capture(&c, sc, &p, &out)?;
-    let op = &summary["loading"]["opacity"];
+    let first = sc.tracked[0].0;
+    let op = &summary[first]["opacity"];
     println!(
         "帧序列：{}（间隔 {}ms，时长 {}ms）",
         out.display(),
@@ -432,9 +441,16 @@ fn cmd_frames(args: &Args) -> Res<i32> {
         p.duration_ms
     );
     println!(
-        "loading.opacity：起点 {} 终点 {} 过冲 {} 稳定于 {}ms",
+        "{first}.opacity：起点 {} 终点 {} 过冲 {} 稳定于 {}ms",
         op["start"], op["end"], op["overshoot"], op["settle_ms"]
     );
+    if let Some(check) = sc.check {
+        if let Err(e) = check(&summary) {
+            println!("  曲线断言失败：{e}");
+            return Ok(1);
+        }
+        println!("曲线断言通过");
+    }
     Ok(0)
 }
 
@@ -490,7 +506,7 @@ fn main() {
     let code = (|| -> Res<i32> {
         let args = Args::parse()?;
         ctx::init_platform();
-        if args.cmd != "review" && args.cmd != "search-bench" {
+        if !matches!(args.cmd.as_str(), "review" | "search-bench" | "video-compat") {
             fixture::ensure()?;
         }
         match args.cmd.as_str() {
@@ -504,8 +520,13 @@ fn main() {
             "search" => cmd_search(&args),
             "search-bench" => cmd_search_bench(&args),
             "review" => cmd_review(&args),
+            "video-compat" => videos::cmd(
+                &args.dir("dir", &std::env::temp_dir().join("sfm-video-fixtures").to_string_lossy()),
+                &args.dir("out-png", &format!("{ARTIFACTS}/video-compat")),
+                &args.dir("out", &format!("{ARTIFACTS}/state/video-compat.json")),
+            ),
             c => Err(format!(
-                "未知子命令 {c}；可用：tree run snap bless compare frames live search search-bench review"
+                "未知子命令 {c}；可用：tree run snap bless compare frames live search search-bench video-compat review"
             )
             .into()),
         }

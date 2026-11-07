@@ -8,9 +8,10 @@ import { IconButton, WindowButton, MenuRow } from "controls.slint";
 import { BrowserPane } from "browser-pane.slint";
 import { ModalDialog } from "dialog.slint";
 import { SearchBox, SearchPanel } from "search.slint";
-import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus } from "types.slint";
+import { PreviewOverlay } from "preview.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus, PreviewState } from "types.slint";
 
-export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus }
+export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus, PreviewState }
 
 component SidebarRow inherits Rectangle {
     in property <SidebarEntry> entry;
@@ -162,6 +163,22 @@ export component MainWindow inherits Window {
     in property <string> dialog-secondary-label;
     in property <bool> dialog-danger: false;
     in property <int> dialog-token;
+    // 图片大图预览（Issue #13）：覆盖整个窗口的查看层，Rust 写入全部状态
+    in property <bool> preview-visible: false;
+    in property <PreviewState> preview-state: PreviewState.loading;
+    in property <string> preview-title;
+    in property <string> preview-position;
+    in property <image> preview-image;
+    in property <string> preview-info;
+    in property <string> preview-message;
+    in property <string> preview-note;
+    in property <bool> preview-one-to-one: false;
+    in property <bool> preview-animated: false;
+    in property <bool> preview-playing: false;
+    in property <bool> preview-busy: false;
+    in property <bool> preview-can-prev: false;
+    in property <bool> preview-can-next: false;
+    in property <int> preview-token;
     // 搜索（Issue #11）：搜索框文字、结果面板状态与结果行
     in-out property <string> search-text;
     in property <SearchView> search-view;
@@ -237,6 +254,12 @@ export component MainWindow inherits Window {
         }
         return { pane: -1, index: -1 };
     }
+    // 大图预览：空格（参数为活动面板）打开；关闭、切换（相对步数，越界取首尾）、1:1／适应窗口、动图播放／暂停
+    callback preview-open(int);
+    callback preview-close();
+    callback preview-step(int);
+    callback preview-set-one-to-one(bool);
+    callback preview-toggle-play();
     callback set-sort(int, SortKey, bool);
     callback set-view(int, ViewMode);
     callback tab-clicked(int, int);
@@ -396,6 +419,11 @@ export component MainWindow inherits Window {
             }
             if (e.text == Key.Escape && DragBus.active) {
                 root.drag-cancel();
+                return accept;
+            }
+            // ---- 大图预览：空格（Ctrl+空格是切换选择，由面板自己处理） ----
+            if (e.text == " " && !e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !e.modifiers.meta) {
+                root.preview-open(root.active-pane);
                 return accept;
             }
             // ---- 面板与布局 ----
@@ -1242,6 +1270,38 @@ export component MainWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    // ---------- 大图预览（在对话框之下：预览中弹出的提示仍在最上） ----------
+    if root.preview-visible: PreviewOverlay {
+        width: root.width;
+        height: root.height;
+        state: root.preview-state;
+        title: root.preview-title;
+        position: root.preview-position;
+        image: root.preview-image;
+        info: root.preview-info;
+        message: root.preview-message;
+        note: root.preview-note;
+        one-to-one: root.preview-one-to-one;
+        animated: root.preview-animated;
+        playing: root.preview-playing;
+        busy: root.preview-busy;
+        can-prev: root.preview-can-prev;
+        can-next: root.preview-can-next;
+        focus-token: root.preview-token;
+        close => {
+            root.preview-close();
+        }
+        step(a0) => {
+            root.preview-step(a0);
+        }
+        set-one-to-one(a0) => {
+            root.preview-set-one-to-one(a0);
+        }
+        toggle-play => {
+            root.preview-toggle-play();
         }
     }
 

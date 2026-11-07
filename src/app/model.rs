@@ -3,7 +3,7 @@
 
 use super::thumbs::Thumbs;
 use crate::browse::{ViewMode as CoreView, Workspace, format};
-use crate::thumbs::{Source, wants_thumbnail};
+use crate::thumbs::{Source, wants_any_thumbnail};
 use crate::{FileItem, ThumbState, browse::tab::Row};
 use slint::{Model, ModelNotify, ModelTracker};
 use std::cell::RefCell;
@@ -101,7 +101,7 @@ impl Model for ItemsModel {
             && t.view() == CoreView::Grid
             && !e.is_dir
             && e.bin.is_none()
-            && wants_thumbnail(&e.ext)
+            && wants_any_thumbnail(&e.ext)
             && let Some(loc) = t.location()
         {
             let key = Source::new(loc.join(&e.os_name), e.size, e.modified).key();

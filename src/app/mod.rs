@@ -18,11 +18,14 @@
 //!   选择语义与资源管理器一致：在未选中的项上右键先单选它，在已选项上右键保持当前选择，空白处右键清空选择。
 //! - 开启 `--debug-perf` 时记录进入目录的耗时：`dir-loaded-us`（结果回到界面线程）、
 //!   `dir-ready-us`（新内容第一帧渲染完成），均自导航请求起算；会话恢复耗时为 `session-restore-us`。
+//! - 大图预览（[`preview`]）：Space 打开活动面板光标所在图片的预览，←/→ 在同目录图片间切换，Esc／Space 关闭；
+//!   后台解码、不改变任何选择，关闭后焦点回到原面板。
 //! - 缩略图（[`thumbs`]）：网格可见范围变化、换目录、切换视图或面板时重新生成请求；结果按文件身份写回对应行。
 //!   harness 使用 [`ThumbMode::Manual`]，由 [`Controller::pump_thumbs`] 显式执行。
 
 pub mod live;
 pub mod model;
+pub mod preview;
 pub mod search;
 pub mod thumbs;
 
@@ -167,6 +170,12 @@ enum Msg {
     },
     Thumb(crate::thumbs::sched::Done),
     ThumbCacheCleared(u64),
+    /// 大图预览的解码结果（`gen_` 是请求代号，过期的直接丢弃）
+    Preview {
+        gen_: u64,
+        path: PathBuf,
+        outcome: crate::preview::loader::Outcome,
+    },
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -242,6 +251,8 @@ pub struct Controller {
     keys_override: Cell<Option<u32>>,
     /// 主窗口句柄（窗口显示后由 [`attach_drop`] 设置）
     hwnd: Cell<isize>,
+    /// 大图预览（Space），见 [`preview`]
+    preview: preview::PreviewUi,
 }
 
 impl Drop for Controller {
@@ -346,6 +357,7 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         saver: slint::Timer::default(),
         live,
         search,
+        preview: preview::PreviewUi::new(thumbs.settings_file()),
         thumbs,
         clipboard: env.xfer.clipboard,
         templates: env.xfer.templates,
@@ -421,6 +433,11 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_clip_op, c => |p, op| c.clip_op(pane(p), op));
     on!(on_item_drag, c => |p, i, phase, x, y| c.item_drag(p, i, phase, x, y));
     on!(on_drag_cancel, c => || c.drag_cancel());
+    on!(on_preview_open, c => |p| c.preview_open(pane(p)));
+    on!(on_preview_close, c => || c.preview_close());
+    on!(on_preview_step, c => |d| c.preview_step(d));
+    on!(on_preview_set_one_to_one, c => |on| c.preview_set_one_to_one(on));
+    on!(on_preview_toggle_play, c => || c.preview_toggle_play());
     on!(on_set_sort, c => |p, key, asc| c.set_sort(pane(p), key, asc));
     on!(on_set_view, c => |p, v| c.set_view(pane(p), v));
     on!(on_tab_clicked, c => |p, i| c.select_tab(pane(p), i));
@@ -858,6 +875,11 @@ impl Controller {
             }
             Msg::Search { session, event } => self.search_event(session, event),
             Msg::Thumb(d) => self.on_thumb(d),
+            Msg::Preview {
+                gen_,
+                path,
+                outcome,
+            } => self.on_preview(gen_, path, outcome),
             Msg::ThumbCacheCleared(freed) => {
                 self.set_message(&format!(
                     "已清空缩略图缓存（释放 {}）",

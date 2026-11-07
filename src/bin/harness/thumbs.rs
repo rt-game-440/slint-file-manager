@@ -24,6 +24,52 @@ pub const TIMEOUT: &str = "缩略图超时";
 /// 样例里可生成缩略图的文件（01–07 成功，08、09 失败，10 慢）。
 const IMAGES: usize = 10;
 
+/// “假视频”魔数：内容以它开头的文件，替身 Shell 返回一张 256×144 的测试图案；其余一律“不支持”。
+pub const FAKE_VIDEO: &[u8] = b"FAKEVID";
+/// 仅缓存查询时，路径含此标记视为“系统缓存里已有缩略图”。
+pub const CACHE_HIT: &str = "缓存命中";
+
+/// 系统缩略图替身：确定性、不依赖本机解码器，并记录每次调用的 `(路径, cache_only)`，
+/// 供断言“云占位只走仅缓存、不隐式下载”。真实 Shell 的兼容性见 `video-compat`。
+#[derive(Default)]
+pub struct FakeShell {
+    pub calls: std::sync::Mutex<Vec<(PathBuf, bool)>>,
+}
+
+impl FakeShell {
+    pub fn calls(&self) -> Vec<(PathBuf, bool)> {
+        self.calls.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+impl slint_file_manager::thumbs::shell::ShellProvider for FakeShell {
+    fn thumbnail(
+        &self,
+        path: &Path,
+        cache_only: bool,
+    ) -> Result<slint_file_manager::thumbs::Thumb, slint_file_manager::thumbs::Fail> {
+        use slint_file_manager::thumbs::Fail;
+        self.calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((path.to_path_buf(), cache_only));
+        if cache_only {
+            // 仅缓存（云占位）：不读文件内容；约定名字含“命中”的才算系统缓存里已有
+            return if path.to_string_lossy().contains(CACHE_HIT) {
+                Ok(samples::pattern(256, 144, 77))
+            } else {
+                Err(Fail::Unsupported)
+            };
+        }
+        let head = fs::read(path).map_err(|_| Fail::Io)?;
+        if head.starts_with(FAKE_VIDEO) {
+            Ok(samples::pattern(256, 144, 33))
+        } else {
+            Err(Fail::Unsupported)
+        }
+    }
+}
+
 /// 文件项的无障碍描述（缩略图状态）。
 pub fn desc(c: &Ctx, name: &str) -> String {
     c.item(name)
@@ -81,7 +127,7 @@ pub fn scene_cache_menu(c: &Ctx) -> Res<()> {
 
 // ---------- 交互脚本 ----------
 
-fn copy_dir(from: &Path, to: &Path) -> Res<()> {
+pub fn copy_dir(from: &Path, to: &Path) -> Res<()> {
     fixture::fresh_dir(to)?;
     for e in fs::read_dir(from)? {
         let e = e?;
@@ -167,13 +213,14 @@ pub fn thumbs(size: (u32, u32), scale: f32) -> Res<(Vec<Value>, Vec<String>)> {
                     s[..IMAGES].iter().all(|d| d == LOADING),
                     "10 个图片文件都应为加载中",
                 ),
+                (s[10].is_empty(), "文本没有缩略图状态"),
                 (
-                    s[10].is_empty() && s[11].is_empty(),
-                    "文本与不支持的格式没有缩略图状态",
+                    s[11] == LOADING,
+                    "TIFF 交给系统缩略图，请求前同样显示加载中",
                 ),
                 (
-                    c.ctl.thumbs().pending_manual() >= IMAGES,
-                    "可见图片应已排队",
+                    c.ctl.thumbs().pending_manual() > IMAGES,
+                    "可见图片与 TIFF 应已排队",
                 ),
             ],
         );
@@ -242,7 +289,11 @@ pub fn thumbs(size: (u32, u32), scale: f32) -> Res<(Vec<Value>, Vec<String>)> {
                     "损坏与超大尺寸文件回退图标",
                 ),
                 (s[9] == TIMEOUT, "慢文件超时后显示图标"),
-                (s[10].is_empty() && s[11].is_empty(), "非图片保持无状态"),
+                (s[10].is_empty(), "文本保持无状态"),
+                (
+                    s[11] == FAILED,
+                    "系统也取不到缩略图的 TIFF 回退图标（替身 Shell 判不支持）",
+                ),
                 (
                     size_of(&thumb_of(c, THUMB_FILES[0])) == (256, 171),
                     "WebP 1200×800 缩到 256×171",

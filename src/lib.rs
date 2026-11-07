@@ -7,6 +7,7 @@
 //! - [`shell_menu`]：文件列表的原生右键菜单（外壳 `IContextMenu`、NanaZip 等扩展）。
 //! - [`search`]：目录／全盘搜索（基本搜索与可选增强）。
 //! - [`thumbs`]：图片缩略图的解码、持久缓存与调度（与界面无关）。
+//! - [`preview`]：图片大图预览的解码、资源上限与后台加载器（与界面无关；界面接线在 `app::preview`）。
 //! - [`perf`]：调试开关下的帧耗时与界面事件日志。
 
 slint::include_modules!();
@@ -18,6 +19,7 @@ pub mod dragdrop;
 pub mod fileops;
 pub mod naming;
 pub mod perf;
+pub mod preview;
 pub mod recycle;
 pub mod search;
 pub mod shell;

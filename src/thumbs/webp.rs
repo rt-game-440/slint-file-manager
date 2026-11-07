@@ -39,6 +39,15 @@ pub fn features(b: &[u8]) -> Result<Features, Fail> {
 /// 解码为 `out_w × out_h` 的 RGBA。尺寸与原图不同时由 libwebp 在解码过程中缩放（不分配整幅 RGBA，
 /// 仅对有损不透明成立；无损或带透明时 libwebp 内部仍会分配整幅缓冲，调用方须先做像素上限检查）。
 pub fn decode(b: &[u8], f: &Features, out_w: u32, out_h: u32) -> Result<Thumb, Fail> {
+    decode_with(b, f, out_w, out_h, true)
+}
+
+/// 原尺寸、完整画质解码（大图预览用：不跳过环路滤波与精细上采样）。调用方须先做像素上限检查。
+pub fn decode_original(b: &[u8], f: &Features) -> Result<Thumb, Fail> {
+    decode_with(b, f, f.w, f.h, false)
+}
+
+fn decode_with(b: &[u8], f: &Features, out_w: u32, out_h: u32, fast: bool) -> Result<Thumb, Fail> {
     // SAFETY: 输出缓冲由我们分配并以 external memory 交给 libwebp，长度与 stride 一致；解码结束后不再被引用。
     unsafe {
         let mut cfg = w::WebPDecoderConfig::new().map_err(|_| Fail::Unsupported)?;
@@ -58,8 +67,10 @@ pub fn decode(b: &[u8], f: &Features, out_w: u32, out_h: u32) -> Result<Thumb, F
             cfg.options.scaled_height = out_h as i32;
         }
         // 跳过环路滤波与精细上采样：缩略图画质差异很小（研究 0005 第 3 节），换取速度
-        cfg.options.no_fancy_upsampling = 1;
-        cfg.options.bypass_filtering = 1;
+        if fast {
+            cfg.options.no_fancy_upsampling = 1;
+            cfg.options.bypass_filtering = 1;
+        }
         match w::WebPDecode(b.as_ptr(), b.len(), &mut cfg) {
             w::VP8StatusCode::VP8_STATUS_OK => Ok(Thumb {
                 w: out_w,
