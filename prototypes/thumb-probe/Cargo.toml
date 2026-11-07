@@ -1,0 +1,32 @@
+# Issue #5 缩略图路线原型：比较 Rust 解码+缩放与 Windows Shell 缩略图，并验证首屏优先、取消、慢文件隔离的调度链路。
+# 独立 crate，不属于主程序；#10 据 docs/research/0005-thumbnail-route.md 把采用的路线搬进主工程。
+[package]
+name = "thumb-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[profile.release]
+debug = 1
+
+[dependencies]
+# 路线 A：libwebp（C，静态链接）—— 支持解码时直接缩放，也用于生成夹具
+libwebp-sys = "0.14"
+# 路线 B：纯 Rust 解码（image-webp，经 image）+ SIMD 缩放
+image = { version = "0.25", default-features = false, features = ["webp", "jpeg", "png", "gif", "bmp"] }
+fast_image_resize = "6"
+serde_json = "1"
+
+[dependencies.windows]
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+]
