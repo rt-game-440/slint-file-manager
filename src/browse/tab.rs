@@ -382,6 +382,14 @@ impl Tab {
             .map(|r| r.entry.name.as_str())
             .collect()
     }
+    /// 第 `i` 行是否被选中（越界为 `false`）。
+    pub fn is_selected(&self, i: usize) -> bool {
+        self.rows.get(i).is_some_and(|r| r.selected)
+    }
+    /// 第 `i` 行是否为文件夹（越界为 `false`）。
+    pub fn is_dir_at(&self, i: usize) -> bool {
+        self.rows.get(i).is_some_and(|r| r.entry.is_dir)
+    }
     /// 第 `i` 行的完整路径；回收站里的项目没有当前路径。
     pub fn path_of(&self, i: usize) -> Option<PathBuf> {
         if self.is_recycle_bin() {
@@ -852,6 +860,20 @@ mod tests {
         assert_eq!(t.rows().len(), 2);
         assert_eq!(t.location(), Some(Path::new(r"C:\二")));
         assert!(t.can_back());
+    }
+
+    #[test]
+    fn selected_paths_follow_selection() {
+        let mut t = ready();
+        assert!(t.selected_paths().is_empty());
+        t.click(1, false, false);
+        t.click(3, true, false);
+        assert_eq!(
+            t.selected_paths(),
+            [Path::new(r"C:\根\a.txt"), Path::new(r"C:\根\c.txt")]
+        );
+        assert!(t.is_selected(1) && !t.is_selected(2) && !t.is_selected(99));
+        assert!(t.is_dir_at(0) && !t.is_dir_at(1) && !t.is_dir_at(99));
     }
 
     #[test]

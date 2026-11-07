@@ -1,4 +1,4 @@
-//! 无头上下文：测试后端（模拟时钟 + 软件渲染器离屏）、窗口配置、元素查找与输入模拟、截图与 PNG 读写。
+﻿//! 无头上下文：测试后端（模拟时钟 + 软件渲染器离屏）、窗口配置、元素查找与输入模拟、截图与 PNG 读写。
 
 use i_slint_backend_testing::{
     ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions, get_mocked_time,
@@ -6,7 +6,9 @@ use i_slint_backend_testing::{
 };
 use slint::ComponentHandle;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
-use slint_file_manager::app::{self, Controller, DriveSource, Env, LiveEnv, Loader, Opener};
+use slint_file_manager::app::{
+    self, Controller, DriveSource, Env, LiveEnv, Loader, MenuCall, MenuMode, Opener,
+};
 use slint_file_manager::browse::places::Drive;
 use slint_file_manager::browse::session::SessionStore;
 use slint_file_manager::fileops::StashBackend;
@@ -116,6 +118,8 @@ pub struct Ctx {
     pub drives: Option<Rc<RefCell<Vec<Drive>>>>,
     /// 临时目录“回收站”：删除、回收站浏览与还原都走它，绝不触碰系统真实回收站
     pub stash: Arc<StashBackend>,
+    /// 右键菜单请求的记录（harness 不弹出系统菜单）
+    pub menus: Rc<RefCell<Vec<MenuCall>>>,
     t0: u64,
 }
 
@@ -174,6 +178,7 @@ impl Ctx {
         let stash = StashBackend::new(crate::fixture::fresh_dir(
             &crate::fixture::parent().join("stash").join(n.to_string()),
         )?);
+        let menus = Rc::new(RefCell::new(Vec::new()));
         let ctl = app::wire(
             &win,
             Env {
@@ -186,6 +191,7 @@ impl Ctx {
                 home: Some(crate::fixture::root()),
                 loader: Loader::Manual(RefCell::new(VecDeque::new())),
                 opener: Opener::Record(opened.clone()),
+                menu: MenuMode::Record(menus.clone()),
                 store: o.session.map(SessionStore::at),
                 fresh_split: o.split,
                 live: o.live.unwrap_or_else(LiveEnv::inert),
@@ -214,6 +220,7 @@ impl Ctx {
             opened,
             drives,
             stash,
+            menus,
             t0: get_mocked_time(),
         };
         if o.load {

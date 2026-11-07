@@ -10,7 +10,8 @@
 | --- | --- | --- |
 | 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario grid-selected --out artifacts/tree.json` | JSON |
 | 磁盘／收藏／目录变化同步（侧栏、收藏持久化、外部变化、后台标签、轮询模式、真实 `subst` 虚拟盘插拔；61 步） | `powershell -File scripts/harness.ps1 live [--review-dir 目录]` | `artifacts/state/live.json`；`--review-dir` 额外输出 3 级审阅截图 |
-| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`） |
+| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`） |
+| 右键菜单真实窗口自测（真实 Win32 输入、系统菜单、NanaZip 命令产物、GDI 量化；需交互式桌面，约 90 秒） | `powershell -File scripts/verify-menu.ps1`（已含在 `scripts/verify-harness.ps1`） | `artifacts/verify/menu/selftest.json`、`menu-trees.txt`、截图；详见 [shell-context-menu.md](shell-context-menu.md) |
 | 截图（100% 与 150%） | `powershell -File scripts/harness.ps1 snap` | `artifacts/snapshots/current/*.png` + `.json` |
 | 截图并与基线比较，输出差异图 | `powershell -File scripts/harness.ps1 compare` | `artifacts/snapshots/diff/*.diff.png`、`compare-report.json` |
 | 更新基线（人工确认后提交） | `powershell -File scripts/harness.ps1 bless` | `tests/baselines/` |
@@ -159,3 +160,4 @@
 - `capture-window.ps1` 在本机对无边框主窗口抓屏时曾抓到窗口下方的其他桌面内容（2026-11-08，原因未查明，可能是窗口尚未上屏或未成功置顶）。抓到的图必须先目视确认，含私人内容立即删除；真实窗口外观改由人工验收。
 - 元素树依赖调试信息，由 `build.rs` 在 `harness` 特性下开启；用默认特性构建的程序查不到元素。
 - Windows 11 尚未验证（见 ADR 0008）；本框架同样只在 Windows 10 上验证过。
+- 无头后端不弹系统菜单：`MenuMode::Record` 只记录“菜单作用于谁”，证明选择语义；真实菜单、NanaZip 命令与事件循环行为只能由 `menu-selftest` 在真实窗口上证明。`menu-selftest` 的截图只合成本进程自己的窗口（主窗口用 Slint 快照，菜单与对话框用 `PrintWindow`），不截屏，不会拍到桌面上的其他内容。
