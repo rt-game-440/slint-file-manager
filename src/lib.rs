@@ -11,6 +11,7 @@
 //! - [`preview`]：图片大图预览的解码、资源上限与后台加载器（与界面无关；界面接线在 `app::preview`）。
 //! - [`perf`]：调试开关下的帧耗时与界面事件日志。
 //! - [`render`]：渲染器选择与原生窗口属性（不透明窗口，Issue #39）。
+//! - [`sysentry`]：系统打开入口的参数解析与接管注册的备份／恢复（Issue #16，尚未接入主程序）。
 
 slint::include_modules!();
 
@@ -30,5 +31,6 @@ pub mod shell;
 pub mod shell_menu;
 pub mod shellnew;
 pub mod shellop;
+pub mod sysentry;
 pub mod thumbs;
 pub mod xfer;
