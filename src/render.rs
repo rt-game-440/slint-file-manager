@@ -92,6 +92,81 @@ pub fn select(args: &[String]) -> Result<Choice, slint::PlatformError> {
     Ok(choice)
 }
 
+// ---------- 最大化工作区（Issue #45） ----------
+//
+// winit 对无边框（无系统标题栏）窗口已在 `WM_NCCALCSIZE` 里把最大化的客户区限制为所在显示器的工作区
+// （`rcWork`，已排除任意一边的任务栏），多显示器按窗口所在显示器取，所以两种渲染器最大化都不会盖住任务栏。
+// 唯一缺口是自动隐藏的任务栏：此时 `rcWork` 等于整块显示器，最大化窗口会盖住屏幕边缘，鼠标碰边缘
+// 也唤不出任务栏。系统自带的最大化会为此留 1 像素，这里在 winit 处理之后同样让出该边 1 像素。
+
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect,
+};
+use windows_sys::Win32::UI::Shell::{
+    ABM_GETAUTOHIDEBAREX, APPBARDATA, DefSubclassProc, SHAppBarMessage, SetWindowSubclass,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{IsZoomed, NCCALCSIZE_PARAMS, WM_NCCALCSIZE};
+
+/// 纯函数：最大化客户区 `rect` 贴着显示器 `monitor` 的某一边、且该边有自动隐藏任务栏
+/// （`autohide` 顺序为 左、上、右、下）时，让出该边 1 像素。
+pub fn leave_autohide_gap(mut rect: RECT, monitor: RECT, autohide: [bool; 4]) -> RECT {
+    if autohide[0] && rect.left == monitor.left {
+        rect.left += 1;
+    }
+    if autohide[1] && rect.top == monitor.top {
+        rect.top += 1;
+    }
+    if autohide[2] && rect.right == monitor.right {
+        rect.right -= 1;
+    }
+    if autohide[3] && rect.bottom == monitor.bottom {
+        rect.bottom -= 1;
+    }
+    rect
+}
+
+const SUBCLASS_ID: usize = 0x5346_4d31;
+
+unsafe extern "system" fn work_area_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    // SAFETY: 窗口过程回调；先交给 winit（链上的下一个过程），再调整它算出的客户区。
+    unsafe {
+        let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+        if msg == WM_NCCALCSIZE && wparam != 0 && IsZoomed(hwnd) != 0 {
+            let params = &mut *(lparam as *mut NCCALCSIZE_PARAMS);
+            let client = params.rgrc[0];
+            let monitor = MonitorFromRect(&client, MONITOR_DEFAULTTONEAREST);
+            let mut info: MONITORINFO = std::mem::zeroed();
+            info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if GetMonitorInfoW(monitor, &mut info) != 0 {
+                let mut autohide = [false; 4];
+                for (edge, flag) in autohide.iter_mut().enumerate() {
+                    let mut abd: APPBARDATA = std::mem::zeroed();
+                    abd.cbSize = std::mem::size_of::<APPBARDATA>() as u32;
+                    abd.uEdge = edge as u32; // ABE_LEFT=0、TOP=1、RIGHT=2、BOTTOM=3
+                    abd.rc = info.rcMonitor;
+                    *flag = SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &mut abd) != 0;
+                }
+                params.rgrc[0] = leave_autohide_gap(client, info.rcMonitor, autohide);
+            }
+        }
+        result
+    }
+}
+
+/// 窗口显示之后调用：挂上最大化工作区子类（自动隐藏任务栏让出 1 像素）。重复调用无害。
+pub fn keep_taskbar_reachable(hwnd: isize) -> bool {
+    // SAFETY: hwnd 是本进程主窗口句柄（窗口线程调用）；子类随窗口销毁。
+    unsafe { SetWindowSubclass(hwnd as HWND, Some(work_area_proc), SUBCLASS_ID, 0) != 0 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +209,33 @@ mod tests {
     fn hook_turns_transparency_off() {
         let a = window_attributes(WindowAttributes::default().with_transparent(true));
         assert!(!a.transparent);
+    }
+
+    fn rc(l: i32, t: i32, r: i32, b: i32) -> RECT {
+        RECT {
+            left: l,
+            top: t,
+            right: r,
+            bottom: b,
+        }
+    }
+
+    #[test]
+    fn gap_only_on_autohide_edges_touching_monitor() {
+        let mon = rc(0, 0, 3840, 2160);
+        // 无自动隐藏：原样
+        let work = rc(0, 0, 3840, 2080);
+        let r = leave_autohide_gap(work, mon, [false; 4]);
+        assert_eq!((r.top, r.bottom), (0, 2080));
+        // 底边自动隐藏、工作区已等于整屏：让出底边 1 像素
+        let r = leave_autohide_gap(mon, mon, [false, false, false, true]);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (0, 0, 3840, 2159));
+        // 左边自动隐藏，但客户区不贴左边（任务栏在别处占了位）：不动
+        let r = leave_autohide_gap(rc(80, 0, 3840, 2160), mon, [true, false, false, false]);
+        assert_eq!(r.left, 80);
+        // 副显示器坐标非零
+        let mon2 = rc(3840, 0, 5760, 1080);
+        let r = leave_autohide_gap(mon2, mon2, [false, false, true, false]);
+        assert_eq!((r.left, r.right), (3840, 5759));
     }
 }

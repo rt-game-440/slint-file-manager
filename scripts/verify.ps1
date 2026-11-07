@@ -26,3 +26,5 @@ Step '会话恢复（真实程序，临时数据目录）' { & (Join-Path $PSScr
 # Issue #39：默认启动方式下窗口必须在桌面合成里可见（屏幕抓取、PrintWindow、WGC 窗口／显示器都取到主题色）。
 # 只在内存里比对颜色，不保存截图；需要已解锁的交互桌面。
 Step '窗口可见性（默认启动方式，发布前必过）' { & (Join-Path $PSScriptRoot 'verify-capture.ps1') }
+# Issue #45：无边框窗口最大化只占工作区（两种渲染；真实鼠标点击标题栏，需要已解锁的交互桌面）。
+Step '窗口最大化只占工作区（默认与软件渲染）' { & (Join-Path $PSScriptRoot 'verify-maximize.ps1') }
