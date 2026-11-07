@@ -67,6 +67,24 @@ pub fn deep_path(levels: usize) -> PathBuf {
     p
 }
 
+/// 会话测试用的全新目录（`%TEMP%\sfm-harness\sessions\<name>`）。绝不使用用户真实的数据目录。
+pub fn session_dir(name: &str) -> Res<PathBuf> {
+    fresh_dir(&parent().join("sessions").join(name))
+}
+
+/// 路径失效测试用的全新草稿目录（`%TEMP%\sfm-harness\scratch\<name>`，位于样例目录之外，不影响其条目数）。
+pub fn scratch_dir(name: &str) -> PathBuf {
+    parent().join("scratch").join(name)
+}
+
+pub fn fresh_dir(d: &Path) -> Res<PathBuf> {
+    if d.exists() {
+        fs::remove_dir_all(d)?;
+    }
+    fs::create_dir_all(d)?;
+    Ok(d.to_path_buf())
+}
+
 fn file(dir: &Path, name: &str, size: u64, t: SystemTime) -> Res<()> {
     let f = File::create(dir.join(name))?;
     f.set_len(size)?;
@@ -97,6 +115,10 @@ fn icacls(args: &[&str]) -> Res<()> {
 /// 删除旧夹具并重新生成。
 pub fn ensure() -> Res<PathBuf> {
     let root = root();
+    // 上次运行遗留的会话与草稿目录
+    for d in ["sessions", "scratch"] {
+        let _ = fs::remove_dir_all(parent().join(d));
+    }
     let denied = root.join(DENIED);
     if denied.exists() {
         let d = denied.to_string_lossy().to_string();

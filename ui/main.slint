@@ -1,4 +1,4 @@
-// 主窗口：A2 风格的融合顶部（标题 + 工具栏 + 右上窗口控制）、浅灰侧栏、单个浏览面板与状态栏。
+// 主窗口：A2 风格的融合顶部（标题 + 工具栏 + 右上窗口控制）、浅灰侧栏、左右两个浏览面板（可切为单栏）与状态栏。
 // 标识约定见 docs/debug-harness.md：元素 id 用 kebab-case，可交互元素同时设置 accessible-label；
 // 窗口根组件的 out 属性供 harness 读取状态。
 import { Palette } from "std-widgets.slint";
@@ -6,9 +6,9 @@ import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { IconButton, WindowButton, MenuRow } from "controls.slint";
 import { BrowserPane } from "browser-pane.slint";
-import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb } from "types.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView } from "types.slint";
 
-export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb }
+export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView }
 
 struct SidebarEntry {
     id: string,
@@ -80,51 +80,70 @@ export component MainWindow inherits Window {
     default-font-size: Theme.font;
     init => {
         Palette.color-scheme = ColorScheme.light;
-        pane.focus-content();
+        left-pane.focus-content();
     }
 
     // ---------- 浏览面板状态（Rust 写入，harness 读取） ----------
-    in property <[FileItem]> items <=> pane.items;
-    in property <int> cursor-index <=> pane.cursor-index;
-    in property <ContentState> content-state <=> pane.state;
-    in property <string> error-detail <=> pane.error-detail;
-    in property <ViewMode> view <=> pane.view;
-    in property <SortKey> sort-key <=> pane.sort-key;
-    in property <bool> sort-ascending <=> pane.sort-ascending;
-    in property <string> location-text <=> pane.location-text;
-    in property <string> tab-title <=> pane.tab-title;
-    in property <[Crumb]> crumbs <=> pane.crumbs;
-    in property <bool> can-back <=> pane.can-back;
-    in property <bool> can-forward <=> pane.can-forward;
-    in property <bool> can-up <=> pane.can-up;
-    in-out property <bool> editing-address <=> pane.editing-address;
+    // 双栏时两个面板同时显示；单栏时只显示活动面板，另一个面板的状态保留在 Rust 一侧
+    in property <bool> split: true;
+    in property <int> active-pane: 0;
+    in property <PaneView> left-view;
+    in property <PaneView> right-view;
+    in property <[FileItem]> left-items;
+    in property <[FileItem]> right-items;
+    in property <[Crumb]> left-crumbs;
+    in property <[Crumb]> right-crumbs;
+    in property <[TabInfo]> left-tabs;
+    in property <[TabInfo]> right-tabs;
     in property <int> selected-count;
     in property <string> status-text;
     in property <string> status-message;
     // 侧栏当前项 id（位置与侧栏入口一致时高亮）
     in property <string> sidebar-current;
 
-    // harness 导出的状态
-    out property <int> item-count: root.items.length;
-    out property <string> focus-area: pane.content-focused ? "content" : pane.address-focused ? "address" : "none";
+    // 工具栏与键盘作用于活动面板
+    property <PaneView> active-view: root.active-pane == 0 ? root.left-view : root.right-view;
 
-    // ---------- 事件（Rust 处理） ----------
-    callback navigate-to <=> pane.navigate-to;
-    callback go-back <=> pane.go-back;
-    callback go-forward <=> pane.go-forward;
-    callback go-up <=> pane.go-up;
-    callback refresh <=> pane.refresh;
-    callback crumb-clicked <=> pane.crumb-clicked;
-    callback item-pointer <=> pane.item-pointer;
-    callback item-activate <=> pane.item-activate;
-    callback background-pointer <=> pane.background-pointer;
-    callback nav-key <=> pane.nav-key;
-    callback select-all <=> pane.select-all;
-    callback activate-selection <=> pane.activate-selection;
-    callback toggle-cursor <=> pane.toggle-cursor;
-    callback open-location <=> pane.open-location;
-    callback set-sort(SortKey, bool);
-    callback set-view(ViewMode);
+    // harness 导出的状态（均为活动面板的值）
+    out property <int> item-count: root.active-pane == 0 ? root.left-items.length : root.right-items.length;
+    out property <ContentState> content-state: root.active-view.state;
+    out property <ViewMode> view: root.active-view.view;
+    out property <SortKey> sort-key: root.active-view.sort-key;
+    out property <bool> sort-ascending: root.active-view.sort-ascending;
+    out property <int> cursor-index: root.active-view.cursor-index;
+    out property <bool> can-back: root.active-view.can-back;
+    out property <bool> can-forward: root.active-view.can-forward;
+    out property <bool> can-up: root.active-view.can-up;
+    out property <bool> editing-address: root.active-pane == 0 ? left-pane.editing-address : right-pane.editing-address;
+    out property <string> focus-area: (left-pane.content-focused || right-pane.content-focused) ? "content" : (left-pane.address-focused || right-pane.address-focused) ? "address" : "none";
+    // 键盘焦点所在的面板（-1 为不在任何面板）
+    out property <int> focused-pane: (left-pane.content-focused || left-pane.address-focused) ? 0 : (right-pane.content-focused || right-pane.address-focused) ? 1 : -1;
+
+    // ---------- 事件（Rust 处理；面板相关的第一个参数是面板编号 0／1） ----------
+    callback navigate-to(int, string);
+    callback go-back(int);
+    callback go-forward(int);
+    callback go-up(int);
+    callback refresh(int);
+    callback crumb-clicked(int, int);
+    callback item-pointer(int, int, bool, bool);
+    callback item-activate(int, int);
+    callback background-pointer(int, bool);
+    callback nav-key(int, NavKey, bool, bool, int, int);
+    callback select-all(int);
+    callback activate-selection(int);
+    callback toggle-cursor(int);
+    callback open-location(int);
+    callback set-sort(int, SortKey, bool);
+    callback set-view(int, ViewMode);
+    callback tab-clicked(int, int);
+    callback tab-close(int, int);
+    callback tab-new(int);
+    callback tab-cycle(int, int);
+    callback tab-number(int, int);
+    callback pane-activated(int);
+    callback switch-pane();
+    callback toggle-split();
     callback sidebar-clicked(string);
     callback request-close();
 
@@ -138,35 +157,86 @@ export component MainWindow inherits Window {
     ];
 
     public function begin-edit-address() {
-        pane.begin-edit-address();
+        if (root.active-pane == 0) {
+            left-pane.begin-edit-address();
+        } else {
+            right-pane.begin-edit-address();
+        }
     }
 
-    // 全局快捷键：子元素未处理的按键冒泡到这里
+    // 把键盘焦点交给指定面板的内容区（Rust 在活动面板变化后调用）
+    public function focus-pane(p: int) {
+        if (p == 0) {
+            left-pane.focus-content();
+        } else {
+            right-pane.focus-content();
+        }
+    }
+
+    // 全局快捷键：子元素未处理的按键冒泡到这里。所有面板相关的快捷键都作用于活动面板。
     shortcuts := FocusScope {
         focus-on-click: false;
         key-pressed(e) => {
             if (e.modifiers.alt && e.text == Key.LeftArrow) {
-                root.go-back();
+                root.go-back(root.active-pane);
                 return accept;
             }
             if (e.modifiers.alt && e.text == Key.RightArrow) {
-                root.go-forward();
+                root.go-forward(root.active-pane);
                 return accept;
             }
             if (e.modifiers.alt && e.text == Key.UpArrow) {
-                root.go-up();
+                root.go-up(root.active-pane);
                 return accept;
             }
             if (e.text == Key.Backspace) {
-                root.go-back();
+                root.go-back(root.active-pane);
                 return accept;
             }
             if (e.text == Key.F5) {
-                root.refresh();
+                root.refresh(root.active-pane);
                 return accept;
             }
-            if (e.text == Key.F4 || (e.modifiers.control && (e.text == "l" || e.text == "L")) || (e.modifiers.alt && (e.text == "d" || e.text == "D"))) {
-                pane.begin-edit-address();
+            if ((e.text == Key.F4 && !e.modifiers.control) || (e.modifiers.control && (e.text == "l" || e.text == "L")) || (e.modifiers.alt && (e.text == "d" || e.text == "D"))) {
+                root.begin-edit-address();
+                return accept;
+            }
+            // ---- 标签（浏览器习惯） ----
+            if (e.modifiers.control && (e.text == "t" || e.text == "T") && !e.modifiers.shift) {
+                root.tab-new(root.active-pane);
+                return accept;
+            }
+            if ((e.modifiers.control && (e.text == "w" || e.text == "W")) || (e.modifiers.control && e.text == Key.F4)) {
+                root.tab-close(root.active-pane, root.active-view.tab-index);
+                return accept;
+            }
+            if (e.modifiers.control && e.text == Key.Tab && !e.modifiers.shift) {
+                root.tab-cycle(root.active-pane, 1);
+                return accept;
+            }
+            if (e.modifiers.control && (e.text == Key.Backtab || (e.text == Key.Tab && e.modifiers.shift))) {
+                root.tab-cycle(root.active-pane, -1);
+                return accept;
+            }
+            if (e.modifiers.control && e.text == Key.PageDown) {
+                root.tab-cycle(root.active-pane, 1);
+                return accept;
+            }
+            if (e.modifiers.control && e.text == Key.PageUp) {
+                root.tab-cycle(root.active-pane, -1);
+                return accept;
+            }
+            if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && e.text.character-count == 1 && e.text.is-float()) {
+                root.tab-number(root.active-pane, Math.round(e.text.to-float()));
+                return accept;
+            }
+            // ---- 面板与布局 ----
+            if (e.text == Key.F6) {
+                root.switch-pane();
+                return accept;
+            }
+            if (e.modifiers.control && e.text == "\\") {
+                root.toggle-split();
                 return accept;
             }
             reject
@@ -278,9 +348,9 @@ export component MainWindow inherits Window {
                                     icon: "grid";
                                     label: "网格视图";
                                     checkable: true;
-                                    checked: root.view == ViewMode.grid;
+                                    checked: root.active-view.view == ViewMode.grid;
                                     clicked => {
-                                        root.set-view(ViewMode.grid);
+                                        root.set-view(root.active-pane, ViewMode.grid);
                                     }
                                 }
                             }
@@ -291,9 +361,9 @@ export component MainWindow inherits Window {
                                     icon: "list";
                                     label: "列表视图";
                                     checkable: true;
-                                    checked: root.view == ViewMode.list;
+                                    checked: root.active-view.view == ViewMode.list;
                                     clicked => {
-                                        root.set-view(ViewMode.list);
+                                        root.set-view(root.active-pane, ViewMode.list);
                                     }
                                 }
                             }
@@ -308,35 +378,48 @@ export component MainWindow inherits Window {
                                 }
                             }
 
-                            // 双栏入口：保留 A2 位置，功能在 Issue #6 提供，当前为禁用外观
+                            // 双栏入口：双栏／单栏切换。单栏只是隐藏，另一侧的标签与状态原样保留
                             VerticalLayout {
                                 alignment: center;
                                 split-button := Rectangle {
                                     height: Theme.control-h;
                                     width: split-row.preferred-width;
+                                    border-radius: 6px;
+                                    background: root.split ? Theme.accent-soft : split-ta.pressed ? Theme.pressed : split-ta.has-hover ? Theme.hover : transparent;
                                     accessible-role: button;
                                     accessible-label: "双栏";
-                                    accessible-enabled: false;
-                                    accessible-description: "后续版本提供";
+                                    accessible-checkable: true;
+                                    accessible-checked: root.split;
+                                    accessible-description: root.split ? "当前为双栏，点击切换为单栏" : "当前为单栏，点击恢复双栏";
+                                    accessible-action-default => {
+                                        root.toggle-split();
+                                    }
+                                    animate background { duration: 90ms; }
 
                                     split-row := HorizontalLayout {
                                         padding-left: 8px;
-                                        padding-right: 8px;
+                                        padding-right: 10px;
                                         spacing: 6px;
                                         Rectangle {
                                             width: Theme.icon-s;
                                             Icon {
                                                 y: (parent.height - self.height) / 2;
                                                 name: "split";
-                                                tint: Theme.text-disabled;
+                                                tint: root.split ? Theme.accent : Theme.text;
                                             }
                                         }
 
                                         Text {
                                             text: "双栏";
-                                            color: Theme.text-disabled;
+                                            color: root.split ? Theme.accent : Theme.text;
                                             font-size: Theme.font;
                                             vertical-alignment: center;
+                                        }
+                                    }
+
+                                    split-ta := TouchArea {
+                                        clicked => {
+                                            root.toggle-split();
                                         }
                                     }
                                 }
@@ -440,36 +523,36 @@ export component MainWindow inherits Window {
 
                                     MenuRow {
                                         text: "名称";
-                                        checked: root.sort-key == SortKey.name;
+                                        checked: root.active-view.sort-key == SortKey.name;
                                         clicked => {
-                                            root.set-sort(SortKey.name, root.sort-ascending);
+                                            root.set-sort(root.active-pane, SortKey.name, root.active-view.sort-ascending);
                                             sort-menu.close();
                                         }
                                     }
 
                                     MenuRow {
                                         text: "修改日期";
-                                        checked: root.sort-key == SortKey.modified;
+                                        checked: root.active-view.sort-key == SortKey.modified;
                                         clicked => {
-                                            root.set-sort(SortKey.modified, root.sort-ascending);
+                                            root.set-sort(root.active-pane, SortKey.modified, root.active-view.sort-ascending);
                                             sort-menu.close();
                                         }
                                     }
 
                                     MenuRow {
                                         text: "类型";
-                                        checked: root.sort-key == SortKey.kind;
+                                        checked: root.active-view.sort-key == SortKey.kind;
                                         clicked => {
-                                            root.set-sort(SortKey.kind, root.sort-ascending);
+                                            root.set-sort(root.active-pane, SortKey.kind, root.active-view.sort-ascending);
                                             sort-menu.close();
                                         }
                                     }
 
                                     MenuRow {
                                         text: "大小";
-                                        checked: root.sort-key == SortKey.size;
+                                        checked: root.active-view.sort-key == SortKey.size;
                                         clicked => {
-                                            root.set-sort(SortKey.size, root.sort-ascending);
+                                            root.set-sort(root.active-pane, SortKey.size, root.active-view.sort-ascending);
                                             sort-menu.close();
                                         }
                                     }
@@ -485,18 +568,18 @@ export component MainWindow inherits Window {
 
                                     MenuRow {
                                         text: "递增";
-                                        checked: root.sort-ascending;
+                                        checked: root.active-view.sort-ascending;
                                         clicked => {
-                                            root.set-sort(root.sort-key, true);
+                                            root.set-sort(root.active-pane, root.active-view.sort-key, true);
                                             sort-menu.close();
                                         }
                                     }
 
                                     MenuRow {
                                         text: "递减";
-                                        checked: !root.sort-ascending;
+                                        checked: !root.active-view.sort-ascending;
                                         clicked => {
-                                            root.set-sort(root.sort-key, false);
+                                            root.set-sort(root.active-pane, root.active-view.sort-key, false);
                                             sort-menu.close();
                                         }
                                     }
@@ -505,10 +588,162 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    pane := BrowserPane {
+                    // ---------- 浏览面板区：双栏等宽，单栏显示活动面板 ----------
+                    // 隐藏的面板保持实例与尺寸（visible: false），滚动位置等界面状态也随之保留。
+                    panes-area := Rectangle {
                         vertical-stretch: 1;
-                        sort-clicked(k) => {
-                            root.set-sort(k, k == root.sort-key ? !root.sort-ascending : true);
+                        property <length> pane-w: root.split ? (self.width - 1px) / 2 : self.width;
+                        property <length> hidden-w: (self.width - 1px) / 2;
+
+                        left-pane := BrowserPane {
+                            x: 0px;
+                            y: 0px;
+                            height: parent.height;
+                            width: (root.split || root.active-pane == 0) ? panes-area.pane-w : panes-area.hidden-w;
+                            visible: root.split || root.active-pane == 0;
+                            pane-id: 0;
+                            pane-name: "左面板";
+                            pane-active: root.active-pane == 0;
+                            v: root.left-view;
+                            items: root.left-items;
+                            crumbs: root.left-crumbs;
+                            tabs: root.left-tabs;
+                            navigate-to(a0, a1) => {
+                                root.navigate-to(a0, a1);
+                            }
+                            go-back(a0) => {
+                                root.go-back(a0);
+                            }
+                            go-forward(a0) => {
+                                root.go-forward(a0);
+                            }
+                            go-up(a0) => {
+                                root.go-up(a0);
+                            }
+                            refresh(a0) => {
+                                root.refresh(a0);
+                            }
+                            crumb-clicked(a0, a1) => {
+                                root.crumb-clicked(a0, a1);
+                            }
+                            item-pointer(a0, a1, a2, a3) => {
+                                root.item-pointer(a0, a1, a2, a3);
+                            }
+                            item-activate(a0, a1) => {
+                                root.item-activate(a0, a1);
+                            }
+                            background-pointer(a0, a1) => {
+                                root.background-pointer(a0, a1);
+                            }
+                            nav-key(a0, a1, a2, a3, a4, a5) => {
+                                root.nav-key(a0, a1, a2, a3, a4, a5);
+                            }
+                            select-all(a0) => {
+                                root.select-all(a0);
+                            }
+                            activate-selection(a0) => {
+                                root.activate-selection(a0);
+                            }
+                            toggle-cursor(a0) => {
+                                root.toggle-cursor(a0);
+                            }
+                            set-sort(a0, a1, a2) => {
+                                root.set-sort(a0, a1, a2);
+                            }
+                            open-location(a0) => {
+                                root.open-location(a0);
+                            }
+                            tab-clicked(a0, a1) => {
+                                root.tab-clicked(a0, a1);
+                            }
+                            tab-close(a0, a1) => {
+                                root.tab-close(a0, a1);
+                            }
+                            tab-new(a0) => {
+                                root.tab-new(a0);
+                            }
+                            pane-activated(a0) => {
+                                root.pane-activated(a0);
+                            }
+                        }
+
+                        if root.split: Rectangle {
+                            x: panes-area.pane-w;
+                            width: 1px;
+                            height: parent.height;
+                            background: Theme.divider-strong;
+                        }
+
+                        right-pane := BrowserPane {
+                            x: root.split ? panes-area.pane-w + 1px : 0px;
+                            y: 0px;
+                            height: parent.height;
+                            width: (root.split || root.active-pane == 1) ? panes-area.pane-w : panes-area.hidden-w;
+                            visible: root.split || root.active-pane == 1;
+                            pane-id: 1;
+                            pane-name: "右面板";
+                            pane-active: root.active-pane == 1;
+                            v: root.right-view;
+                            items: root.right-items;
+                            crumbs: root.right-crumbs;
+                            tabs: root.right-tabs;
+                            navigate-to(a0, a1) => {
+                                root.navigate-to(a0, a1);
+                            }
+                            go-back(a0) => {
+                                root.go-back(a0);
+                            }
+                            go-forward(a0) => {
+                                root.go-forward(a0);
+                            }
+                            go-up(a0) => {
+                                root.go-up(a0);
+                            }
+                            refresh(a0) => {
+                                root.refresh(a0);
+                            }
+                            crumb-clicked(a0, a1) => {
+                                root.crumb-clicked(a0, a1);
+                            }
+                            item-pointer(a0, a1, a2, a3) => {
+                                root.item-pointer(a0, a1, a2, a3);
+                            }
+                            item-activate(a0, a1) => {
+                                root.item-activate(a0, a1);
+                            }
+                            background-pointer(a0, a1) => {
+                                root.background-pointer(a0, a1);
+                            }
+                            nav-key(a0, a1, a2, a3, a4, a5) => {
+                                root.nav-key(a0, a1, a2, a3, a4, a5);
+                            }
+                            select-all(a0) => {
+                                root.select-all(a0);
+                            }
+                            activate-selection(a0) => {
+                                root.activate-selection(a0);
+                            }
+                            toggle-cursor(a0) => {
+                                root.toggle-cursor(a0);
+                            }
+                            set-sort(a0, a1, a2) => {
+                                root.set-sort(a0, a1, a2);
+                            }
+                            open-location(a0) => {
+                                root.open-location(a0);
+                            }
+                            tab-clicked(a0, a1) => {
+                                root.tab-clicked(a0, a1);
+                            }
+                            tab-close(a0, a1) => {
+                                root.tab-close(a0, a1);
+                            }
+                            tab-new(a0) => {
+                                root.tab-new(a0);
+                            }
+                            pane-activated(a0) => {
+                                root.pane-activated(a0);
+                            }
                         }
                     }
                 }

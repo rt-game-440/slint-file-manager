@@ -3,12 +3,19 @@
 //! 本模块不接触界面与线程：导航产生 [`LoadRequest`]，由调用方在任意线程执行 [`LoadRequest::run`]，
 //! 再把 [`Loaded`] 交回 [`Tab::apply`]。序号不匹配的旧结果会被丢弃，快速连续导航时不会把旧目录贴到新位置。
 //! 选择以条目为单位保存在行上，排序与视图切换不改变选择集合。
+//!
+//! 每个标签有自己的编号（[`TabId`]，由 [`super::workspace::Workspace`] 分配）、历史、排序与视图。
+//! 从会话文件恢复的标签先处于 [`LoadState::Idle`]（只带位置，不读取目录），首次被激活时才读取；
+//! 位置读取失败时标签保留，不自动换位置，也不自动重试。
 
 use super::entry::{Entry, ListError, ListErrorKind, list_dir};
 use super::history::History;
 use super::sort::{SortSpec, sort_by};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+
+/// 标签编号：窗口生命周期内唯一，用来把异步读取结果送回正确的标签。
+pub type TabId = u64;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ViewMode {
@@ -109,8 +116,21 @@ enum Restore {
     },
 }
 
+/// 恢复标签所需的持久状态（不含选择与光标）。
+#[derive(Clone, Debug, PartialEq)]
+pub struct TabSeed {
+    pub location: PathBuf,
+    pub sort: SortSpec,
+    pub view: ViewMode,
+    pub back: Vec<PathBuf>,
+    pub forward: Vec<PathBuf>,
+}
+
 #[derive(Debug, Default)]
 pub struct Tab {
+    id: TabId,
+    /// 由会话恢复而来、且尚未被用户导航过
+    restored: bool,
     location: Option<PathBuf>,
     history: History,
     rows: Vec<Row>,
@@ -128,6 +148,75 @@ pub struct Tab {
 impl Tab {
     pub fn new() -> Tab {
         Tab::default()
+    }
+
+    /// 带编号的空标签。
+    pub fn with_id(id: TabId) -> Tab {
+        Tab {
+            id,
+            ..Tab::default()
+        }
+    }
+
+    /// 从持久状态恢复：只设置位置、排序、视图与历史，状态为 `Idle`，不读取目录。
+    pub fn from_seed(id: TabId, seed: TabSeed) -> Tab {
+        Tab {
+            id,
+            restored: true,
+            location: Some(seed.location),
+            sort: seed.sort,
+            view: seed.view,
+            history: History::from_parts(seed.back, seed.forward),
+            ..Tab::default()
+        }
+    }
+
+    /// 以当前位置、排序和视图新开一个标签（不带历史、选择）。新标签与原标签此后互不影响。
+    pub fn duplicate(&self, id: TabId) -> Tab {
+        Tab {
+            id,
+            location: self.location.clone(),
+            sort: self.sort,
+            view: self.view,
+            ..Tab::default()
+        }
+    }
+
+    /// 持久状态；没有位置的标签（尚未进入任何目录）返回 `None`。
+    pub fn seed(&self) -> Option<TabSeed> {
+        let (back, forward) = self.history.parts();
+        Some(TabSeed {
+            location: self.location.clone()?,
+            sort: self.sort,
+            view: self.view,
+            back,
+            forward,
+        })
+    }
+
+    pub fn id(&self) -> TabId {
+        self.id
+    }
+
+    /// 由会话恢复且用户尚未导航过。
+    pub fn is_restored(&self) -> bool {
+        self.restored
+    }
+
+    /// 位置当前读取失败（路径不存在、无权限、磁盘未连接等），标签与位置都保留。
+    pub fn is_unavailable(&self) -> bool {
+        matches!(self.state, LoadState::Failed { .. })
+    }
+
+    /// 标签被激活（切换到、所在面板变为可见）时调用：尚未读取、或上次读取失败的标签读取一次。
+    /// 已就绪或正在读取的标签返回 `None`，因此反复切换不会产生重复请求；失败不会自动重试。
+    pub fn ensure_loaded(&mut self) -> Option<LoadRequest> {
+        let path = self.location.clone()?;
+        match self.state {
+            LoadState::Idle => Some(self.begin(path, Restore::None)),
+            LoadState::Failed { .. } => self.refresh(),
+            _ => None,
+        }
     }
 
     // ---------- 读取 ----------
@@ -194,6 +283,7 @@ impl Tab {
 
     /// 进入新位置（记入历史）。
     pub fn navigate(&mut self, path: PathBuf) -> LoadRequest {
+        self.restored = false;
         if let Some(old) = self.location.take()
             && old != path
         {

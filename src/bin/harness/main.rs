@@ -4,6 +4,7 @@
 
 mod compare;
 mod ctx;
+mod dual;
 mod dump;
 mod fixture;
 mod frames;
@@ -112,17 +113,45 @@ fn cmd_tree(args: &Args) -> Res<i32> {
 fn cmd_run(args: &Args) -> Res<i32> {
     let scale: f32 = args.get("scale", "1").parse()?;
     let repeat: usize = args.get("repeat", "2").parse()?;
+    let size = args.size()?;
     let mut runs: Vec<Value> = Vec::new();
     let mut fails: Vec<String> = Vec::new();
     for _ in 0..repeat {
-        let c = Ctx::new(args.size()?, scale)?;
-        let (steps, f) = scenarios::interaction(&c)?;
-        fails.extend(f);
-        runs.push(json!(steps));
+        // 单栏浏览流程、双栏标签流程、重启恢复流程各自独立，结果合并后核对重复运行是否一致
+        let c = Ctx::new(size, scale)?;
+        let (single, f1) = scenarios::interaction(&c).map_err(|e| format!("[单栏] {e}"))?;
+        drop(c);
+        let (dual, f2) = dual::dual(size, scale).map_err(|e| format!("[双栏] {e}"))?;
+        let (restore, f3) = dual::restore(size, scale).map_err(|e| format!("[恢复] {e}"))?;
+        fails.extend(f1.into_iter().map(|f| format!("[单栏] {f}")));
+        fails.extend(f2.into_iter().map(|f| format!("[双栏] {f}")));
+        fails.extend(f3.into_iter().map(|f| format!("[恢复] {f}")));
+        runs.push(json!({"single": single, "dual": dual, "restore": restore}));
     }
     let consistent = runs.windows(2).all(|w| w[0] == w[1]);
     if !consistent {
         fails.push("重复运行的状态记录不一致".into());
+        // 指出第一处不同的步骤与字段，便于定位不确定性来源
+        'outer: for sec in ["single", "dual", "restore"] {
+            let (a, b) = (&runs[0][sec], &runs[1][sec]);
+            for (x, y) in a
+                .as_array()
+                .into_iter()
+                .flatten()
+                .zip(b.as_array().into_iter().flatten())
+            {
+                if x != y {
+                    let mut keys = Vec::new();
+                    collect_diff("", x, y, &mut keys);
+                    fails.push(format!(
+                        "首个不一致：[{sec}] {}：{}",
+                        x["step"],
+                        keys.join("；")
+                    ));
+                    break 'outer;
+                }
+            }
+        }
     }
     let out = args.dir("out", &format!("{ARTIFACTS}/state/interaction.json"));
     write_json(
@@ -131,8 +160,10 @@ fn cmd_run(args: &Args) -> Res<i32> {
                 "failures": fails, "steps": runs[0]}),
     )?;
     println!(
-        "交互脚本：{} 步，重复 {repeat} 次，{}；输出 {}",
-        runs[0].as_array().map_or(0, |a| a.len()),
+        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步，重复 {repeat} 次，{}；输出 {}",
+        runs[0]["single"].as_array().map_or(0, |a| a.len()),
+        runs[0]["dual"].as_array().map_or(0, |a| a.len()),
+        runs[0]["restore"].as_array().map_or(0, |a| a.len()),
         if fails.is_empty() {
             "全部断言通过且结果一致"
         } else {
@@ -144,6 +175,28 @@ fn cmd_run(args: &Args) -> Res<i32> {
         println!("  失败：{f}");
     }
     Ok(if fails.is_empty() { 0 } else { 1 })
+}
+
+fn collect_diff(path: &str, a: &Value, b: &Value, out: &mut Vec<String>) {
+    match (a, b) {
+        (Value::Object(x), Value::Object(y)) => {
+            for (k, v) in x {
+                collect_diff(
+                    &format!("{path}.{k}"),
+                    v,
+                    y.get(k).unwrap_or(&Value::Null),
+                    out,
+                );
+            }
+        }
+        (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
+            for (i, (v, w)) in x.iter().zip(y).enumerate() {
+                collect_diff(&format!("{path}[{i}]"), v, w, out);
+            }
+        }
+        _ if a != b => out.push(format!("{path}: {a} != {b}")),
+        _ => {}
+    }
 }
 
 /// 渲染一个场景的截图，同一场景用两个全新窗口渲染两次，不一致则标记不稳定。

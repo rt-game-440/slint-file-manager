@@ -8,7 +8,26 @@ pub struct History {
     forward: Vec<PathBuf>,
 }
 
+/// 持久化时每个方向最多保留的历史条数。
+pub const MAX_PERSISTED: usize = 50;
+
 impl History {
+    /// 由持久化的两个栈构造（`back` 末尾是最近一次后退目标）。
+    pub fn from_parts(mut back: Vec<PathBuf>, mut forward: Vec<PathBuf>) -> History {
+        trim_front(&mut back);
+        trim_front(&mut forward);
+        History { back, forward }
+    }
+
+    /// 两个栈的副本，超过上限时只保留最近的部分。
+    pub fn parts(&self) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let mut b = self.back.clone();
+        let mut f = self.forward.clone();
+        trim_front(&mut b);
+        trim_front(&mut f);
+        (b, f)
+    }
+
     /// 从 `from` 进入新位置：`from` 进入后退栈，前进栈清空。
     pub fn visit(&mut self, from: PathBuf) {
         self.back.push(from);
@@ -38,9 +57,26 @@ impl History {
     }
 }
 
+fn trim_front(v: &mut Vec<PathBuf>) {
+    if v.len() > MAX_PERSISTED {
+        v.drain(..v.len() - MAX_PERSISTED);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parts_roundtrip_and_cap() {
+        let back: Vec<PathBuf> = (0..80).map(|i| format!("B{i}").into()).collect();
+        let h = History::from_parts(back, vec!["F".into()]);
+        let (b, f) = h.parts();
+        assert_eq!(b.len(), MAX_PERSISTED);
+        assert_eq!(b.last(), Some(&PathBuf::from("B79")));
+        assert_eq!(b.first(), Some(&PathBuf::from("B30")));
+        assert_eq!(f, [PathBuf::from("F")]);
+    }
 
     #[test]
     fn back_forward_roundtrip() {
