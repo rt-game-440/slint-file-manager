@@ -7,6 +7,8 @@
 #   旧实现用 CopyFromScreen 抓“窗口矩形所在的屏幕像素”，得到的是桌面上此刻显示的任何东西。
 #   本应用是无边框窗口，GL（femtovg）画面若没有被合成为不透明像素（窗口内容 alpha=0 或尚未呈现），
 #   屏幕上该矩形里就是别的窗口——即使窗口是前台、WindowFromPoint 也报“属于本窗口”，抓屏照样拍到桌面。
+#   （Issue #39 已查明 alpha=0 的来源是 Slint 默认的透明窗口属性，产品已改为不透明窗口，默认启动即可抓到；
+#    这些防护仍保留，防止任何回归导致保存桌面内容。）
 #   旧脚本的“置顶”无法解决这一点；另外 GetWindowRect 还带一圈不可见的缩放边框，边缘永远是桌面像素。
 # 现在的做法：
 #   1. WGC 只读取目标窗口自己的画面，与遮挡、前台、屏幕位置无关；最小化时没有帧，直接拒绝。
@@ -141,7 +143,9 @@ New-Item -ItemType Directory -Force $dataDir | Out-Null
 
 $argv = @("--debug-perf", "--smoke-ms=$RunMs", "--no-session", "--data-dir=`"$dataDir`"")
 if ($Open) { $argv += "--open=`"$Open`"" }
-if ($Software) { $env:SLINT_BACKEND = "winit-software" }  # 软件渲染：画面走 CPU 呈现，WGC 抓得到
+# 默认测产品默认启动方式：清掉可能影响渲染器的环境变量；-Software 用产品开关（ADR 0010）
+foreach ($v in 'SLINT_BACKEND', 'SFM_RENDERER') { [Environment]::SetEnvironmentVariable($v, $null, 'Process') }
+if ($Software) { $argv += '--renderer=software' }
 $p = Start-Process $exe -ArgumentList $argv -PassThru
 $fail = $null
 $saved = 0

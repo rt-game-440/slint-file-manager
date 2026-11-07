@@ -12,7 +12,7 @@ harness = [
 ]
 
 [dependencies]
-slint = { version = "1.18.1", features = ["raw-window-handle-06"] }
+slint = { version = "1.18.1", features = ["raw-window-handle-06", "unstable-winit-030"] }
 # 取得主窗口 HWND（接管外部拖放目标）
 raw-window-handle = "0.6"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

@@ -1614,6 +1614,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = make_fixture()?;
     println!("夹具：{}", root.display());
 
+    // 与产品同样的渲染器选择与不透明窗口（Issue #39）
+    slint_file_manager::render::select(&args)?;
     let win = MainWindow::new()?;
     let ctl = app::wire(
         &win,

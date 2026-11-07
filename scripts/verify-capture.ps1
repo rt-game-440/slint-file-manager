@@ -1,4 +1,4 @@
-﻿# 外部抓取可见性核实（Issue #15，已知问题 1）：默认渲染器（femtovg/OpenGL）的无边框窗口，用户从外部能不能“看到”？
+﻿# 外部抓取可见性核实（Issue #15 引入；Issue #39 起为发布前必过检查，已接入 scripts/verify.ps1）：本应用窗口在桌面合成里是否真的可见？
 # 对本应用自己的窗口，分别用几种外部手段取样，**只在内存中比对主题色，不保存任何截图**：
 #   屏幕抓取    CopyFromScreen（Win+Shift+S、PrintScreen、整屏共享、录屏走桌面合成结果，与此等价）
 #   WGC 窗口    Windows.Graphics.Capture 单窗口抓取（窗口共享）
@@ -6,8 +6,11 @@
 #   PrintWindow PW_RENDERFULLCONTENT
 # 取样点：侧栏空白处应为主题色 #eef0f3，内容区空白处应为 #fdfdfe（ui/theme.slint）。命中率 = 命中点数 / 取样点数。
 # 启动用 --no-session、临时数据目录、临时夹具目录（不显示用户真实目录）。
-# 用法：powershell -File scripts/verify-capture.ps1 [-Software]
-param([switch]$Software)
+# 判定：四种方式都“可见”（命中率 ≥ 60%）才通过。退出码 0 通过、1 有方式不可见、2 无法判断（找不到窗口、取不到帧等）。
+# 需要已解锁的交互桌面（锁屏或远程会话断开时屏幕抓取全黑，会判为不可见）。
+# 用法：powershell -File scripts/verify-capture.ps1 [-Software] [-Exe 其他构建的exe]
+#   默认不加渲染器参数（产品默认启动方式）；-Software 用产品开关 --renderer=software（ADR 0010）。
+param([switch]$Software, [string]$Exe)
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 Add-Type -AssemblyName System.Drawing
@@ -107,7 +110,10 @@ function Report($name, $r) {
     $verdict = if ($r.hit -ge [math]::Ceiling($r.total * 0.6)) { '可见（与主题色一致）' } else { '不可见或内容不对' }
     Write-Host ("  {0,-26} 命中 {1}/{2}（侧栏 {3}/12，内容区 {4}/9），不透明 {5}/{2} -> {6}" -f $name, $r.hit, $r.total, $r.side, $r.content, $r.opaque, $verdict)
     if ($r.other) { Write-Host ("      未命中点的主要颜色：{0}" -f $r.other) }
+    $script:results += , @($name, ($r.hit -ge [math]::Ceiling($r.total * 0.6)))
 }
+$script:results = @()
+$script:code = 0
 
 
 $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1
@@ -139,16 +145,19 @@ function WgcFrame($hwnd, $monitor) {
 }
 
 # ---- 启动 ----
-$exe = Join-Path (Get-Location) 'target\release\slint-file-manager.exe'
+$exe = if ($Exe) { (Resolve-Path $Exe).Path } else { Join-Path (Get-Location) 'target\release\slint-file-manager.exe' }
 if (-not (Test-Path $exe)) { Write-Error '未找到 release 程序，请先运行 scripts/build.ps1'; exit 1 }
 $work = Join-Path $env:TEMP ('sfm-capture-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $fixture = Join-Path $work 'fixture'; $data = Join-Path $work 'data'
 New-Item -ItemType Directory -Force $fixture, $data | Out-Null
 1..5 | ForEach-Object { [IO.File]::WriteAllBytes((Join-Path $fixture "样例$_.txt"), [byte[]](1, 2, 3)) }
-if ($Software) { $env:SLINT_BACKEND = 'winit-software' } else { Remove-Item Env:SLINT_BACKEND -ErrorAction SilentlyContinue }
-$mode = if ($Software) { '软件渲染（winit-software）' } else { '默认渲染（femtovg/OpenGL）' }
+# 清掉可能影响渲染器选择的环境变量，确保测的是产品默认启动方式（或 -Software 的显式开关）
+foreach ($v in 'SLINT_BACKEND', 'SFM_RENDERER') { [Environment]::SetEnvironmentVariable($v, $null, 'Process') }
+$mode = if ($Software) { '软件渲染（--renderer=software）' } else { '默认启动方式（不加渲染器参数，femtovg/OpenGL）' }
 Write-Host "渲染器：$mode"
-$p = Start-Process $exe -ArgumentList "--no-session", "--data-dir=`"$data`"", "--open=`"$fixture`"", '--smoke-ms=30000' -PassThru
+$argv = @("--no-session", "--data-dir=`"$data`"", "--open=`"$fixture`"", '--smoke-ms=30000')
+if ($Software) { $argv += '--renderer=software' }
+$p = Start-Process $exe -ArgumentList $argv -PassThru
 try {
     $hwnd = [IntPtr]::Zero
     for ($i = 0; $i -lt 80; $i++) {
@@ -156,7 +165,7 @@ try {
         $hwnd = [Cap]::LargestWindow([uint32]$p.Id)
         if ($hwnd -ne [IntPtr]::Zero) { $rr = New-Object Cap+RECT; [void][Cap]::DwmGetWindowAttribute($hwnd, 9, [ref]$rr, [Runtime.InteropServices.Marshal]::SizeOf($rr)); if (($rr.Right - $rr.Left) -ge 400 -and ($rr.Bottom - $rr.Top) -ge 300) { break } }
     }
-    if ($hwnd -eq [IntPtr]::Zero) { Write-Error '没有找到应用窗口'; exit 1 }
+    if ($hwnd -eq [IntPtr]::Zero) { Write-Host '没有找到应用窗口；结论：无法判断'; exit 2 }
     Start-Sleep -Milliseconds 1500
     # 置顶，避免被别的窗口遮挡后把别人的内容当成“看不见”的证据
     [void][Cap]::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0043)   # HWND_TOPMOST, NOMOVE|NOSIZE|SHOWWINDOW
@@ -171,6 +180,11 @@ try {
     $top = [Cap]::GetAncestor([Cap]::WindowFromPoint([int]($r.Left + $w / 2), [int]($r.Top + $h * 0.9)), 2)
     $tpid = 0; [void][Cap]::GetWindowThreadProcessId($top, [ref]$tpid)
     Write-Host ("窗口属性：样式 0x{0:X8}，扩展样式 0x{1:X8}（LAYERED 0x80000、NOREDIRECTIONBITMAP 0x200000、TOPMOST 0x8、NOACTIVATE 0x8000000），cloaked={2}；窗口中下部最上层窗口{3}本应用" -f $st, $ex, $cloak, $(if ($tpid -eq $p.Id) { '是' } else { '不是' }))
+
+    # 进程里加载的图形驱动模块（判断 OpenGL 走了哪块 GPU 的驱动、是否用了 DirectComposition）
+    $mods = try { (Get-Process -Id $p.Id).Modules | ForEach-Object { $_.ModuleName.ToLower() } } catch { @() }
+    $gpuMods = $mods | Where-Object { $_ -match '^(opengl32|nvoglv64|atio6axx|amdxx64|ig.*icd64|dcomp|nvwgf2umx|amdxc64|softbuffer)\.dll$' } | Sort-Object -Unique
+    Write-Host ("图形模块：{0}" -f $(if ($gpuMods) { $gpuMods -join ', ' } else { '（无）' }))
 
     # 1. 屏幕抓取
     $bmp = New-Object System.Drawing.Bitmap $w, $h
@@ -194,7 +208,7 @@ try {
 
     # 3. WGC 单窗口（窗口共享、Win+G）
     $bmp = WgcFrame $hwnd ([IntPtr]::Zero)
-    if ($bmp) { Report 'WGC 窗口抓取' (Probe $bmp); $bmp.Dispose() } else { Write-Host '  WGC 窗口抓取               没有取到帧' }
+    if ($bmp) { Report 'WGC 窗口抓取' (Probe $bmp); $bmp.Dispose() } else { Write-Host '  WGC 窗口抓取               没有取到帧'; $script:code = 2 }
     # 4. WGC 整个显示器（Snipping Tool/Win+Shift+S、Teams／OBS 的屏幕共享用这类路径），裁出本应用窗口所在区域
     $mon = [Cap]::MonitorFromWindow($hwnd, 2)
     $mi = New-Object Cap+MONITORINFO; $mi.cbSize = [Runtime.InteropServices.Marshal]::SizeOf($mi); [void][Cap]::GetMonitorInfo($mon, [ref]$mi)
@@ -204,9 +218,14 @@ try {
         $crop.Intersect((New-Object System.Drawing.Rectangle 0, 0, $full.Width, $full.Height))
         $part = $full.Clone($crop, $full.PixelFormat); $full.Dispose()
         Report 'WGC 显示器抓取' (Probe $part); $part.Dispose()
-    } else { Write-Host '  WGC 显示器抓取             没有取到帧' }
+    } else { Write-Host '  WGC 显示器抓取             没有取到帧'; $script:code = 2 }
 
 } finally {
     if (-not $p.HasExited) { $p.Kill() }
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 }
+$bad = @($script:results | Where-Object { -not $_[1] } | ForEach-Object { $_[0] })
+if ($script:code -eq 2) { Write-Host "结论：无法判断（$mode）"; exit 2 }
+if ($script:results.Count -lt 4 -or $bad.Count -gt 0) { Write-Host ("结论：不通过，不可见的方式：{0}（$mode）" -f ($bad -join '、')); exit 1 }
+Write-Host "结论：通过，四种方式都取到主题色（$mode）"
+exit 0
