@@ -129,6 +129,8 @@
 
 本单已直接修复：分发包缺 VC 运行库（`.cargo/config.toml`）。
 
+后续（2026-11-08，Issue #39）：D1 根因已查明并修复——Slint 默认的透明窗口属性使 winit 启用 DWM 模糊背景，开发机上 femtovg/OpenGL 交给 DWM 的 alpha 为 0；现所有窗口不透明，默认渲染在开发机上四种外部抓取都可见，`scripts/verify-capture.ps1` 已作为发布前必过检查接入 `scripts/verify.ps1`。详见 [ADR 0010](../adr/0010-opaque-window-renderer-switch.md)。实体显示器上的人眼确认仍保留为清单人工项。
+
 ## 阻塞项与未完成
 
 - #39：必须先在实体显示器上确认（清单第一项）。

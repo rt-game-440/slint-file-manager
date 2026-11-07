@@ -78,7 +78,15 @@ pub fn init(window: &slint::Window) -> std::io::Result<PathBuf> {
     });
 
     let mut before: Option<Instant> = None;
-    let res = window.set_rendering_notifier(move |state, _| match state {
+    let res = window.set_rendering_notifier(move |state, api| match state {
+        // 实际使用的图形接口（Issue #39：区分 femtovg/OpenGL 与软件渲染；软件渲染不会触发这一步）
+        RenderingState::RenderingSetup => {
+            let name = match api {
+                slint::GraphicsAPI::NativeOpenGL { .. } => "opengl",
+                _ => "other",
+            };
+            with(|l| l.line(&format!("renderer graphics_api={name}")));
+        }
         RenderingState::BeforeRendering => before = Some(Instant::now()),
         RenderingState::AfterRendering => {
             if let Some(b) = before.take() {

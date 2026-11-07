@@ -10,6 +10,7 @@
 //! - [`thumbs`]：图片缩略图的解码、持久缓存与调度（与界面无关）。
 //! - [`preview`]：图片大图预览的解码、资源上限与后台加载器（与界面无关；界面接线在 `app::preview`）。
 //! - [`perf`]：调试开关下的帧耗时与界面事件日志。
+//! - [`render`]：渲染器选择与原生窗口属性（不透明窗口，Issue #39）。
 
 slint::include_modules!();
 
@@ -23,6 +24,7 @@ pub mod naming;
 pub mod perf;
 pub mod preview;
 pub mod recycle;
+pub mod render;
 pub mod search;
 pub mod shell;
 pub mod shell_menu;

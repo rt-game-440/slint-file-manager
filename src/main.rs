@@ -6,6 +6,8 @@
 //! - `--data-dir=<目录>`：会话（标签、位置、排序、视图）的保存目录，默认 `%LOCALAPPDATA%\slint-file-manager`
 //!   （也可用环境变量 `SFM_DATA_DIR`）；`--no-session` 不恢复也不保存会话。
 //!   `--smoke`／`--bench-enter` 默认不读写会话，除非同时给出 `--data-dir=`。
+//! - `--renderer=gl|software`（或环境变量 `SFM_RENDERER`）：手动指定渲染器，默认 femtovg（OpenGL），初始化失败时
+//!   回退软件渲染；Slint 自带的 `SLINT_BACKEND` 仍然有效但优先级更低。见 `render` 模块与 ADR 0010（Issue #39）。
 //! - `--debug-perf`（或环境变量 `SFM_DEBUG_PERF=1`）：记录帧耗时与界面事件（含进入目录耗时）到 `logs/`，默认关闭。
 //! - `--bench-enter=<路径>`：进入目录计时，在该目录与其上级之间往返 `--bench-runs=N`（默认 10）次后退出；
 //!   隐含 `--debug-perf`。`--bench-interval-ms=N` 为每一步间隔（默认 400，缩略图计时用 2500）。
@@ -17,7 +19,7 @@
 
 use slint::ComponentHandle;
 use slint_file_manager::browse::session::SessionStore;
-use slint_file_manager::{MainWindow, Theme, app, perf, shell};
+use slint_file_manager::{MainWindow, Theme, app, perf, render, shell};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -50,11 +52,22 @@ fn main() -> Result<(), slint::PlatformError> {
     let start = arg_value(&args, "--open=").map(PathBuf::from);
     let benching_requested = bench_target.is_some();
 
+    // 必须在创建任何窗口之前：选定渲染器并关闭原生窗口透明（Issue #39）
+    let renderer = render::select(&args)?;
     let window = MainWindow::new()?;
     window
         .global::<Theme>()
         .set_text_scale(shell::text_scale_factor());
     let perf_log = perf::setup_if_requested(&window, &args);
+    perf::event(
+        match renderer.renderer {
+            Some(render::Renderer::Gl) => "renderer-forced-gl",
+            Some(render::Renderer::Software) => "renderer-forced-software",
+            None if std::env::var_os("SLINT_BACKEND").is_some() => "renderer-slint-backend-env",
+            None => "renderer-default",
+        },
+        None,
+    );
     // 会话位置：--data-dir= 显式指定 > SFM_DATA_DIR > %LOCALAPPDATA%\slint-file-manager。
     // --no-session 不恢复也不保存；烟雾／计时模式只在显式指定数据目录时才读写会话，避免污染用户真实会话。
     let explicit_dir = arg_value(&args, "--data-dir=").map(PathBuf::from);

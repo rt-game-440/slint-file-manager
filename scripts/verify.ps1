@@ -1,4 +1,4 @@
-﻿# 定向验证：格式、clippy、浏览核心单元测试、构建、--smoke 启动退出。编译并行度上限 6。
+﻿# 定向验证：格式、clippy、浏览核心单元测试、构建、--smoke 启动退出、会话恢复、窗口可见性（发布前必过）。编译并行度上限 6。
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 
@@ -23,3 +23,6 @@ $os = (Get-CimInstance Win32_OperatingSystem)
 Write-Host "冒烟通过：$($os.Caption) build $($os.BuildNumber)"
 
 Step '会话恢复（真实程序，临时数据目录）' { & (Join-Path $PSScriptRoot 'verify-session.ps1') }
+# Issue #39：默认启动方式下窗口必须在桌面合成里可见（屏幕抓取、PrintWindow、WGC 窗口／显示器都取到主题色）。
+# 只在内存里比对颜色，不保存截图；需要已解锁的交互桌面。
+Step '窗口可见性（默认启动方式，发布前必过）' { & (Join-Path $PSScriptRoot 'verify-capture.ps1') }
