@@ -4,6 +4,8 @@
 //!   换机器时比较结果为“环境不同”而不是回归。
 //! - 名称、大小、修改时间全部固定；内容只是占位字节，不会被执行（harness 的打开动作只记录路径）。
 //! - “无权限”文件夹用 icacls 拒绝 Everyone 列目录，只作用于本夹具；下次生成前先 `/reset` 还原。
+//! - 缩略图样例（`%TEMP%\sfm-harness\缩略图样例`，在样例目录之外，不改变其条目数）：内容由
+//!   `thumbs::decode::samples` 确定性生成的真实图片，以及损坏、扩展名不符、超大尺寸、“慢”文件与不支持的格式。
 
 use crate::ctx::Res;
 use std::fs::{self, File, OpenOptions};
@@ -40,6 +42,25 @@ const FILES: &[(&str, u64)] = &[
     (LONG_PDF, 1_887_436),
 ];
 
+/// 缩略图样例目录名。
+pub const THUMBS: &str = "缩略图样例";
+
+/// 缩略图样例的文件（按显示顺序）。名称含 [`crate::ctx::SLOW_MARK`] 的被当作慢文件。
+pub const THUMB_FILES: [&str; 12] = [
+    "01 风景.webp",
+    "02 横拍竖看.jpg",
+    "03 透明.png",
+    "04 动图.gif",
+    "05 位图.bmp",
+    "06 无损透明.webp",
+    "07 内容是PNG.jpg",
+    "08 损坏.webp",
+    "09 超大尺寸.png",
+    "10 慢.webp",
+    "11 说明.txt",
+    "12 不支持.tif",
+];
+
 /// 2026-03-14 01:30:00 UTC
 const BASE_SECS: u64 = 1_773_451_800;
 
@@ -62,6 +83,10 @@ pub fn root() -> PathBuf {
 
 pub fn path(rel: &str) -> PathBuf {
     root().join(rel)
+}
+
+pub fn thumbs_root() -> PathBuf {
+    parent().join(THUMBS)
 }
 
 pub fn deep_path(levels: usize) -> PathBuf {
@@ -192,7 +217,40 @@ pub fn ensure() -> Res<PathBuf> {
     // *S-1-1-0 = Everyone；RD = 列出目录／读取数据
     icacls(&[&d, "/deny", "*S-1-1-0:(OI)(CI)(RD)", "/Q"])?;
 
+    ensure_thumbs()?;
     Ok(root)
+}
+
+/// 生成缩略图样例目录（内容、修改时间固定）。
+fn ensure_thumbs() -> Res<()> {
+    use slint_file_manager::thumbs::decode::samples as s;
+    let dir = fresh_dir(&thumbs_root())?;
+    let png_as_jpg = s::png(&s::pattern(360, 240, 30));
+    let contents: [Vec<u8>; 12] = [
+        s::webp_lossy(&s::pattern(1200, 800, 120)),
+        // EXIF 方向 6：存储为横图，显示应为竖图（红块在右上）
+        s::jpeg(&s::pattern(960, 640, 90), 6),
+        s::png(&s::with_hole(512, 512)),
+        s::gif2(&s::pattern(400, 300, 160)),
+        s::bmp(&s::pattern(480, 360, 60)),
+        s::webp_lossless(&s::with_hole(400, 400)),
+        png_as_jpg,
+        b"RIFF\x10\x00\x00\x00WEBPVP8 garbage-garbage-garbage".to_vec(),
+        s::png_huge_header(30_000, 30_000),
+        s::webp_lossy(&s::pattern(800, 800, 220)),
+        "缩略图样例里的普通文本文件".as_bytes().to_vec(),
+        b"II*\x00not-a-real-tiff".to_vec(),
+    ];
+    for (i, (name, data)) in THUMB_FILES.iter().zip(contents).enumerate() {
+        let path = dir.join(name);
+        fs::write(&path, data)?;
+        OpenOptions::new()
+            .write(true)
+            .open(&path)?
+            .set_modified(time(100 + i as u64))?;
+    }
+    dir_time(&dir, time(120))?;
+    Ok(())
 }
 
 /// 根目录可见条目数（不含隐藏文件）：照片、空文件夹、无权限、长名称文件夹 + 12 张图片 + FILES。

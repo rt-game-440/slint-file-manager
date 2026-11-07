@@ -595,6 +595,11 @@ export component BrowserPane inherits Rectangle {
     callback tab-close(int, int);
     callback tab-new(int);
     callback pane-activated(int);
+    // 网格可见范围变化（缩略图调度），参数为面板编号
+    callback thumbs-viewport(int);
+    // 网格可见项范围 [visible-first, visible-end)（Rust 读取）
+    out property <int> visible-first: file-grid.visible-first;
+    out property <int> visible-end: file-grid.visible-end;
 
     // 把键盘焦点交给本面板的内容区（正在编辑地址时不抢焦点）
     public function focus-content() {
@@ -764,6 +769,9 @@ export component BrowserPane inherits Rectangle {
                     background-context() => {
                         content.focus();
                         root.context-menu(root.pane-id, -1, 0px, 0px, false);
+                    }
+                    viewport-changed => {
+                        root.thumbs-viewport(root.pane-id);
                     }
                 }
 

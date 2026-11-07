@@ -1,8 +1,10 @@
 //! 把浏览上下文的条目暴露为 Slint 模型。按需生成显示文字：大目录只为可见行格式化，
-//! 不在界面线程为全部条目构造 `FileItem`。
+//! 不在界面线程为全部条目构造 `FileItem`。缩略图状态同样按需从内存缓存查询（见 [`super::thumbs`]）。
 
-use crate::browse::{Workspace, format};
-use crate::{FileItem, browse::tab::Row};
+use super::thumbs::Thumbs;
+use crate::browse::{ViewMode as CoreView, Workspace, format};
+use crate::thumbs::{Source, wants_thumbnail};
+use crate::{FileItem, ThumbState, browse::tab::Row};
 use slint::{Model, ModelNotify, ModelTracker};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,14 +12,16 @@ use std::rc::Rc;
 /// 一个浏览面板当前标签的条目。切换标签时调用 [`ItemsModel::reset`]，模型随即指向新标签的行。
 pub struct ItemsModel {
     ws: Rc<RefCell<Workspace>>,
+    thumbs: Rc<Thumbs>,
     pane: usize,
     notify: ModelNotify,
 }
 
 impl ItemsModel {
-    pub fn new(ws: Rc<RefCell<Workspace>>, pane: usize) -> ItemsModel {
+    pub fn new(ws: Rc<RefCell<Workspace>>, thumbs: Rc<Thumbs>, pane: usize) -> ItemsModel {
         ItemsModel {
             ws,
+            thumbs,
             pane,
             notify: ModelNotify::default(),
         }
@@ -28,7 +32,7 @@ impl ItemsModel {
         self.notify.reset();
     }
 
-    /// 单行变化（选择）。
+    /// 单行变化（选择、缩略图结果）。
     pub fn row_changed(&self, row: usize) {
         self.notify.row_changed(row);
     }
@@ -52,6 +56,8 @@ pub fn to_item(r: &Row) -> FileItem {
         is_dir: e.is_dir,
         icon: format::icon_name(e).into(),
         selected: r.selected,
+        thumb_state: ThumbState::None,
+        thumb: Default::default(),
     }
 }
 
@@ -63,12 +69,22 @@ impl Model for ItemsModel {
     }
 
     fn row_data(&self, row: usize) -> Option<FileItem> {
-        self.ws
-            .borrow()
-            .active_tab(self.pane)
-            .rows()
-            .get(row)
-            .map(to_item)
+        let ws = self.ws.borrow();
+        let t = ws.active_tab(self.pane);
+        let r = t.rows().get(row)?;
+        let mut item = to_item(r);
+        let e = &r.entry;
+        if self.thumbs.enabled()
+            && t.view() == CoreView::Grid
+            && !e.is_dir
+            && e.bin.is_none()
+            && wants_thumbnail(&e.ext)
+            && let Some(loc) = t.location()
+        {
+            let key = Source::new(loc.join(&e.os_name), e.size, e.modified).key();
+            (item.thumb_state, item.thumb) = self.thumbs.lookup(key);
+        }
+        Some(item)
     }
 
     fn model_tracker(&self) -> &dyn ModelTracker {

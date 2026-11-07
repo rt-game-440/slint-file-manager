@@ -8,7 +8,10 @@
 //!   `--smoke`／`--bench-enter` 默认不读写会话，除非同时给出 `--data-dir=`。
 //! - `--debug-perf`（或环境变量 `SFM_DEBUG_PERF=1`）：记录帧耗时与界面事件（含进入目录耗时）到 `logs/`，默认关闭。
 //! - `--bench-enter=<路径>`：进入目录计时，在该目录与其上级之间往返 `--bench-runs=N`（默认 10）次后退出；
-//!   隐含 `--debug-perf`。用法见 scripts/perf-browse.ps1。
+//!   隐含 `--debug-perf`。`--bench-interval-ms=N` 为每一步间隔（默认 400，缩略图计时用 2500）。
+//!   计时模式下左右面板都从目标的上级目录开始，不读取主目录；`--bench-single` 以单栏开始（默认双栏）。用法见 scripts/perf-browse.ps1、scripts/perf-thumbs.ps1。
+//! - 缩略图持久缓存在数据目录的 `thumbs` 子目录（环境变量 `SFM_THUMB_CACHE_DIR` 可另行指定）；
+//!   没有数据目录（`--no-session`、烟雾／计时模式未给 `--data-dir=`）且没有该环境变量时只用内存缓存。
 
 #![windows_subsystem = "windows"]
 
@@ -32,6 +35,11 @@ fn main() -> Result<(), slint::PlatformError> {
     let bench_runs: u32 = arg_value(&args, "--bench-runs=")
         .and_then(|v| v.parse().ok())
         .unwrap_or(10);
+    let bench_interval = Duration::from_millis(
+        arg_value(&args, "--bench-interval-ms=")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(400),
+    );
     let smoke_ms: Option<u64> = args.iter().find_map(|a| {
         if a == "--smoke" {
             Some(1000)
@@ -59,11 +67,22 @@ fn main() -> Result<(), slint::PlatformError> {
     } else {
         SessionStore::default_location()
     };
-    let controller = app::wire(&window, app::Env::production(start, store));
+    let mut env = app::Env::production(start, store);
+    if let Some(parent) = bench_target.as_deref().and_then(|t| t.parent()) {
+        // 计时：两侧面板都从目标的上级开始（不读取主目录，另一面板也不产生缩略图请求）
+        env.home = Some(parent.to_path_buf());
+        if env.start.is_none() {
+            env.start = Some(parent.to_path_buf());
+        }
+        if args.iter().any(|a| a == "--bench-single") {
+            env.fresh_split = false;
+        }
+    }
+    let controller = app::wire(&window, env);
 
     let benching = bench_target.is_some();
     let _bench = bench_target.map(|t| {
-        app::start_bench(controller.clone(), t, bench_runs, || {
+        app::start_bench(controller.clone(), t, bench_runs, bench_interval, || {
             let _ = slint::quit_event_loop();
         })
     });

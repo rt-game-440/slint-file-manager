@@ -121,6 +121,7 @@
 - **Issue #6（双栏独立标签）**：所有原有单栏场景的基线重新 `bless`。变化只发生在两处：顶部多了标签带（含当前标签与“新建标签”按钮）与面板顶边的活动蓝线；工具栏的“双栏”按钮由禁用态变为可用（单栏外观下为未选中态）。内容区与列表／网格像素未变（用旧基线逐像素比较确认差异只落在这两个区域）。同时新增 5 个双栏场景基线（见“新增场景”）。
 - **Issue #7（磁盘、收藏与目录变化）**：所有场景基线重新 `bless`。侧栏由静态占位改为
 - **Issue #8（删除、回收站、还原）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏与侧栏：工具栏在视图按钮之后新增“删除”“永久删除”两个图标按钮和一条分隔线（无选择时为灰色），“双栏”按钮与搜索框因此右移，搜索框在空间不足时先收窄（最小 48px，避免 150% 文字缩放下把窗口撑宽）；侧栏“回收站”由禁用态（灰字）变为可用。内容区、列表与网格像素未变（用旧基线比较，差异图只落在工具栏和侧栏“回收站”行）。同时新增 7 个场景基线（见“新增场景”）。
+- **Issue #10（缩略图）**：所有场景重新 `bless`。所有场景的变化：工具栏“双栏”之后新增“更多”（⋯）按钮，收藏星标与搜索框随之右移（用变基后的旧基线比较确认，列表视图场景的差异只落在工具栏这一段）。网格视图场景（`grid-*`、`text-scale-150` 等）另有：网格单元最小宽度 116px → 124px、上方缩略图区固定 84px（文字缩放时最多放大到 1.5 倍），因此每行列数与图标位置变化；没有缩略图的项目（文件夹、非图片）仍显示类型图标。新增 4 个缩略图场景基线（见“新增场景”）。
 
 ## 动画逐帧采集
 
@@ -149,11 +150,11 @@
 - 内容：`start`、`frame n= interval_ms= render_ms= animating= dropped=`、`event <名称>`、`summary`（帧数、p50、p95、最大间隔、掉帧数）。
 - 掉帧：动画期间相邻两帧间隔超过 25ms（`SFM_PERF_DROP_MS` 可改）。每次动画的第一帧不判定。
 - 已有事件：`animation-start`、`animation-end`、`scroll`；进入目录：`dir-loaded-us`（自导航请求起，读取结果回到界面线程）、`dir-entries`（条目数）、`dir-ready-us`（新内容第一帧渲染完成，用 `perf::mark_next_frame` 在下一帧记录），基准模式额外有 `bench-iter`。
-- 首屏缩略图事件（Issue #5 定义，**产品尚未实现，由 #10 写入**）：`thumbs-first-screen-us`，值为自本次导航请求起，到“首屏内正常文件的缩略图全部已显示、且已渲染出这一帧”的微秒数，用 `perf::mark_next_frame("thumbs-first-screen-us", 导航起点)` 记录；失败、超时、仍在生成的慢文件不计入“正常文件”，但要有各自的最终状态。事件缺失时 `scripts/perf-thumbs.ps1` 输出“未测量”，不写 0。
-  - 条件记录：窗口 1100x720（`harness` 同款）、首屏项数（网格 7 列 × 4 个完整行 = 28，含半露出一行 35；布局变动后重新计数）、缓存条件。缩略图缓存目录由环境变量 `SFM_THUMB_CACHE_DIR` 指定（#10 实现）：冷 = 清空该目录；同进程热 = 同一进程内再次进入（`--bench-enter` 的第 2 次起）；重启后 = 保留目录、新开进程。`perf-thumbs.ps1` 已按此切分 `--bench-enter` 日志里的各次进入。
+- 首屏缩略图事件（Issue #5 定义，Issue #10 实现，细节见 [thumbnails.md](thumbnails.md#首屏计时)）：`thumbs-first-screen-us`，值为自本次导航请求起，到“活动面板首屏可见的图片全部有结果（成功、失败或超时）、且已渲染出这一帧”的微秒数，用 `perf::mark_next_frame` 记录；之前依次记录 `thumbs-first-screen-items`（首屏图片数，产品按实际布局统计）、`-ready`、`-failed`、`-timeout`。比 #5 的定义更严：慢文件最多等到 2 秒超时才算有结果，而不是被排除。事件缺失时 `scripts/perf-thumbs.ps1` 输出“未测量”，不写 0。
+  - 条件记录：窗口 1100x720（`harness` 同款）、首屏项数（取自 `thumbs-first-screen-items`）、缓存条件。缩略图缓存目录由环境变量 `SFM_THUMB_CACHE_DIR` 指定：冷 = 清空该目录；同进程热 = 同一进程内再次进入（`--bench-enter` 的第 2 次起）；重启后 = 保留目录、新开进程。`perf-thumbs.ps1` 按此切分 `--bench-enter` 日志里的各次进入。
   - 调度原型的“无头”首屏时间不含 Slint 上传与渲染，不能与该事件混用。
 - 隐私：`perf::event` 只接受静态字符串和一个整数，写不进路径、文件名、图像内容。新增事件保持这一约束。
-- 复现：`--open=目录` 指定起始目录，`--smoke-ms=N` 运行 N 毫秒后自动退出；`--bench-enter=目录 [--bench-runs=10]` 每 400ms 在目录与其上级之间切换，每次进入前记录 `bench-iter`（隐含 `--debug-perf`），`scripts/perf-browse.ps1` 据此汇总。
+- 复现：`--open=目录` 指定起始目录，`--smoke-ms=N` 运行 N 毫秒后自动退出；`--bench-enter=目录 [--bench-runs=10] [--bench-interval-ms=400] [--bench-single]` 每隔给定毫秒在目录与其上级之间切换（左右面板都从目标的上级开始，默认双栏，`--bench-single` 以单栏开始），每次进入前记录 `bench-iter`（隐含 `--debug-perf`），`scripts/perf-browse.ps1`（`-IntervalMs`、`-Single`）据此汇总；`perf-thumbs.ps1` 用 2500ms 间隔，保证每次进入的缩略图都有结果。
 - Issue #22 的示例界面（切换面板、示例列表、`--demo-autoplay`）已在 Issue #4 随真实浏览界面一起移除；harness 的场景、基线、交互脚本全部改为真实界面。
 
 - **Issue #11（搜索）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏的搜索框：由禁用的占位（“搜索（即将提供）”，220px）变为可输入的搜索框（占位文字“搜索名称、扩展名或路径”，240px，空闲时浅灰底、聚焦或搜索中为白底蓝描边），搜索框因此比此前宽 20px。内容区、侧栏、标签带像素未变：用旧基线逐像素比较，54 个原有基线的差异像素全部落在搜索框区域内（文字缩放 150% 的场景搜索框随文字缩放变宽，差异同样只在该框内）。同时新增 11 个搜索场景基线（见“新增场景”）。
@@ -166,6 +167,7 @@
 - 活动面板的截图审阅：`review` 的 REVIEW.md 已包含上述场景及“预期效果”；对比 `dual-default`（左活动）与 `dual-tabs`／`dual-text-scale-150`（右活动）即可看到顶边蓝线与标签底色的切换。
 - 删除与回收站场景（Issue #8，基线 100%／150%，后端为临时目录“回收站”）：`delete-confirm`（多选后 Delete 的移到回收站确认）、`delete-confirm-permanent`（Shift+Delete 的红色危险确认）、`recycle-bin`（三个不同删除时间的项目，列为名称／删除日期／原位置／大小，侧栏选中，提示条与“还原所选项目”）、`recycle-bin-empty`、`delete-partial`（注入权限不足：部分成功说明）、`delete-unsupported`（不支持回收站：只给说明）、`restore-conflict`（还原遇同名冲突的部分成功）。
 - 搜索场景（Issue #11，基线 100%／150%，名称以 `search-` 开头，环境见 `src/bin/harness/search.rs` 的 `showcase_env`：手动模式、模拟增强后端、全盘根目录注入）：`search-scanning`（扫描中，只送达开始与第一批结果）、`search-results`（完成并选中第一项，增强未安装）、`search-empty`、`search-denied`（无权限文件夹被跳过）、`search-all-disks`（全盘，含一个不可访问的根）、`search-no-disks`（没有可搜索的磁盘）、`search-enhanced`（模拟增强就绪，含陈旧索引项被剔除）、`search-fallback-not-running`、`search-fallback-failed`（增强查询中途失败已回退）、`search-cancelled`、`search-results-text-scale-150`。搜索任务在手动模式下排队，`Controller::search_pump(n)` 执行并最多送达 n 个事件，因此能确定地停在“扫描中”。
+- 缩略图场景（Issue #10，基线 100%／150%）：`thumbs-loading`（请求尚未执行的加载占位）、`thumbs-ready`（全部完成，含方向、透明、GIF 第一帧、扩展名不符、损坏与超大尺寸回退）、`thumbs-fallback`（慢文件超时回退）、`thumb-cache-menu`（“更多”菜单）。夹具是样例目录之外的 `%TEMP%\sfm-harness\缩略图样例`（`fixture::THUMB_FILES`，内容由 `thumbs::decode::samples` 确定性生成；不改变样例目录条目数）。harness 的缩略图使用手动调度器：`Ctx::pump` 同时执行缩略图请求（`hold_thumbs` 为真时不执行，用于截“加载中”）；文件名含“慢”的图片先超时，`Controller::finish_slow_thumbs` 迟到补图。`Scenario.thumb_cache` 为真时使用每次清空的持久缓存目录。交互脚本 `thumbs.rs`（12 步）覆盖加载中可选择与打开、换目录作废排队请求、结果内容、迟到补图、写盘、重启复用、修改／改名／删除失效、缓存菜单、清空与容量。
 - 不要为尚不存在的界面预建抽象；界面出现后再在这些入口上扩展。
 
 ## 已知限制与排错

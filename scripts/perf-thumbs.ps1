@@ -3,8 +3,9 @@
 # 做三件事，结果合并写入 artifacts/perf/thumbs-<时间>.json（原始分项 JSON 在同名目录），运行摘要写 logs/<时间>.log：
 #   1. 原型（prototypes/thumb-probe）：路线对比（解码／缩放／内存）、冷／热／重启三种缓存条件下的首屏、
 #      滚动取消、换目录、慢文件隔离、异常文件。无头：不含 Slint 上传与渲染，不是整机 UI 成绩。
-#   2. 产品界面：用 slint-file-manager.exe 的 --bench-enter 复用 #4 的“可操作”计时（scripts/perf-browse.ps1），
-#      并读取日志里的事件 thumbs-first-screen-us（产品实现缩略图后由 #10 写入；没有该事件时显示“未测量”，绝不写 0）。
+#   2. 产品界面：用 slint-file-manager.exe 的 --bench-enter 复用 #4 的“可操作”计时（scripts/perf-browse.ps1，步间隔 2500ms），
+#      并读取日志里的事件 thumbs-first-screen-us 与首屏数量（#10 写入；某次进入没有该事件时显示“未测量”，绝不写 0）。
+#      首屏项数由产品按实际窗口与布局统计（thumbs-first-screen-items），双栏下不再需要手工 -FirstScreen。
 #   3. 环境记录：系统、CPU、内存、窗口、首屏项数、缓存条件。
 #
 # 用法：
@@ -21,7 +22,9 @@ param(
     [int]$FirstScreen = 28,
     [switch]$SkipProduct,
     [switch]$ProductOnly,
-    [switch]$Quick
+    [switch]$Quick,
+    # 产品计时以单栏开始（窗口 1100x720 单栏首屏约 28～35 项；默认双栏约 11 项）
+    [switch]$Single
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -301,13 +304,16 @@ if ($synthetic) {
 }
 # ---------------------------------------------------------------- 4. 产品界面：可操作 + 首屏缩略图事件
 function Parse-ProductLog([string]$path) {
-    # 每个 bench-iter 之后的第一条 dir-ready-us 与 thumbs-first-screen-us 属于该次进入
+    # 每个 bench-iter 之后的第一条 dir-ready-us 与 thumbs-first-screen-*（数量先于计时写出）属于该次进入
     $its = @(); $cur = $null
     foreach ($line in Get-Content -LiteralPath $path -Encoding utf8) {
-        if ($line -match 'event bench-iter') { $cur = [ordered]@{ operable_ms = $null; thumbs_ms = $null }; $its += , $cur; continue }
+        if ($line -match 'event bench-iter') { $cur = [ordered]@{ operable_ms = $null; thumbs_ms = $null; items = $null; ready = $null; failed = $null; timeout = $null }; $its += , $cur; continue }
         if ($null -eq $cur) { continue }
         if ($null -eq $cur.operable_ms -and $line -match 'event dir-ready-us value=(\d+)') { $cur.operable_ms = [double]$Matches[1] / 1000 }
         if ($null -eq $cur.thumbs_ms -and $line -match 'event thumbs-first-screen-us value=(\d+)') { $cur.thumbs_ms = [double]$Matches[1] / 1000 }
+        foreach ($k in 'items', 'ready', 'failed', 'timeout') {
+            if ($null -eq $cur[$k] -and $line -match "event thumbs-first-screen-$k value=(\d+)") { $cur[$k] = [int]$Matches[1] }
+        }
     }
     return , $its
 }
@@ -325,7 +331,10 @@ if ($SkipProduct) {
     if (Test-Path $pcache) { Remove-Item -LiteralPath $pcache -Recurse -Force }
     $env:SFM_THUMB_CACHE_DIR = $pcache
     $benchRuns = 10
-    & powershell -NoProfile -File scripts\perf-browse.ps1 -Dir $primary -Runs $benchRuns | ForEach-Object { Log "  $_" }
+    $interval = 2500
+    $pbArgs = @('-NoProfile', '-File', 'scripts\perf-browse.ps1', '-Dir', $primary, '-Runs', $benchRuns, '-IntervalMs', $interval)
+    if ($Single) { $pbArgs += '-Single' }
+    & powershell @pbArgs | ForEach-Object { Log "  $_" }
     if ($LASTEXITCODE -ne 0) { Write-Error 'perf-browse 失败'; exit 1 }
     $pb = Get-ChildItem artifacts\perf -Filter 'browse-*.json' | Sort-Object LastWriteTime | Select-Object -Last 1
     $pj = Get-Content -LiteralPath $pb.FullName -Raw -Encoding utf8 | ConvertFrom-Json
@@ -333,39 +342,50 @@ if ($SkipProduct) {
     $it1 = Parse-ProductLog $log1
     # 重启后：保留缓存目录，新开进程
     $before = Get-Date
-    $p = Start-Process $exe -ArgumentList "--bench-enter=`"$primary`"", "--bench-runs=$benchRuns" -PassThru
-    if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error '重启后基准超时'; exit 1 }
+    $rArgs = @("--bench-enter=`"$primary`"", "--bench-runs=$benchRuns", "--bench-interval-ms=$interval")
+    if ($Single) { $rArgs += '--bench-single' }
+    $p = Start-Process $exe -ArgumentList $rArgs -PassThru
+    if (-not $p.WaitForExit(180000)) { $p.Kill(); Write-Error '重启后基准超时'; exit 1 }
+    $cacheBytes = (Get-ChildItem -LiteralPath $pcache -Recurse -File -Filter *.thumb -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum)
+    $cacheInfo = [ordered]@{ entries = [int]$cacheBytes.Count; bytes = [int64]$cacheBytes.Sum }
     $log2f = Get-ChildItem logs -Filter *.log | Where-Object { $_.LastWriteTime -ge $before -and $_.Name -ne "$stamp.log" } | Sort-Object LastWriteTime | Select-Object -Last 1
     $it2 = if ($log2f) { Parse-ProductLog $log2f.FullName } else { @() }
     Remove-Item Env:\SFM_THUMB_CACHE_DIR -ErrorAction SilentlyContinue
 
-    $unmeasured = '未测量：产品尚未实现缩略图（#10 实现并写入事件 thumbs-first-screen-us 后自动出现）'
+    $unmeasured = '未测量：这些进入没有 thumbs-first-screen-us 事件'
     function Thumbs($its) { $v = @($its | ForEach-Object { $_.thumbs_ms } | Where-Object { $null -ne $_ }); if ($v.Count -eq 0) { return $unmeasured } else { return Stat $v } }
     $first1 = if ($it1.Count -gt 0) { @($it1[0]) } else { @() }
     $rest1 = if ($it1.Count -gt 1) { @($it1[1..($it1.Count - 1)]) } else { @() }
     $first2 = if ($it2.Count -gt 0) { @($it2[0]) } else { @() }
+    function Counts($its) { $o = [ordered]@{}; foreach ($k in 'items', 'ready', 'failed', 'timeout') { $v = @($its | ForEach-Object { $_[$k] } | Where-Object { $null -ne $_ } | Sort-Object -Unique); $o[$k] = $v -join '/' }; return $o }
     $result.product = [ordered]@{
-        method          = '主程序 --bench-enter：在目录与其上级间往返，每次进入记录 dir-ready-us（新内容第一帧渲染完成 = 可操作）；首屏缩略图事件 thumbs-first-screen-us'
-        window          = $env_.window
-        first_screen_items = $FirstScreen
+        method          = "主程序 --bench-enter（步间隔 ${interval}ms）：在目录与其上级间往返，每次进入记录 dir-ready-us（新内容第一帧渲染完成 = 可操作）；thumbs-first-screen-us = 活动面板首屏可见图片全部有结果（成功／失败／超时）后渲染完成的那一帧"
+        window          = if ($Single) { '1100x720 单栏（--bench-single）' } else { '1100x720 默认双栏（左面板活动，两侧都从目标的上级开始；另一面板没有图片）' }
+        first_screen_items_measured = Counts ($it1 + $it2)
+        first_screen_items_param = $FirstScreen
         files           = $nFiles
         operable_ms     = [ordered]@{
             cold_first_enter     = Stat ($first1 | ForEach-Object { $_.operable_ms })
             warm_same_process    = Stat ($rest1 | ForEach-Object { $_.operable_ms })
             restart_first_enter  = Stat ($first2 | ForEach-Object { $_.operable_ms })
-            note = '“冷”指进程内第一次进入（含首次渲染等一次性开销），样本只有 1 个；多次冷启动请重复运行本脚本取分布。尚无缩略图，所以这是不含缩略图的可操作时间'
+            note = '“冷”指进程内第一次进入（含首次渲染等一次性开销），样本只有 1 个；多次冷启动请重复运行本脚本取分布。缩略图在后台生成，可操作时间不等待缩略图'
         }
         thumbs_first_screen_ms = [ordered]@{
             cold_first_enter    = Thumbs $first1
             warm_same_process   = Thumbs $rest1
             restart_first_enter = Thumbs $first2
         }
-        cache_condition = '产品尚无缩略图缓存；约定 SFM_THUMB_CACHE_DIR 指定缓存目录，冷=清空，重启后=保留并新开进程'
+        cache_condition = 'SFM_THUMB_CACHE_DIR 指定缓存目录：冷 = 第一个进程的首次进入（目录已清空）；同进程热 = 第 2 次起（内存缓存）；重启后 = 保留目录、新开进程的首次进入（磁盘缓存）'
+        disk_cache_after = $cacheInfo
+        targets_ms = [ordered]@{ operable = 200; thumbs_first_screen_cold = 1000; repeat_visit = 300 }
         perf_browse_result = $pb.Name
     }
     Log ("  可操作：冷首次进入 {0}ms；同进程再进入 中位 {1}ms（p90 {2}ms）；重启后首次进入 {3}ms" -f $result.product.operable_ms.cold_first_enter.median, $result.product.operable_ms.warm_same_process.median, $result.product.operable_ms.warm_same_process.p90, $result.product.operable_ms.restart_first_enter.median)
-    if ($result.product.thumbs_first_screen_ms.cold_first_enter -is [string]) { Log '  首屏缩略图：未测量（产品尚未实现缩略图）' }
-    $notMeasured.Add('产品界面首屏缩略图时间（产品尚无缩略图）')
+    $tf = $result.product.thumbs_first_screen_ms
+    $fmt = { param($x) if ($x -is [string]) { $x } else { "中位 $($x.median)ms（最大 $($x.max)ms，n=$($x.n)）" } }
+    Log ("  首屏缩略图（首屏 {0} 项）：冷 {1}；同进程再进入 {2}；重启后首次进入 {3}" -f $result.product.first_screen_items_measured.items, (& $fmt $tf.cold_first_enter), (& $fmt $tf.warm_same_process), (& $fmt $tf.restart_first_enter))
+    Log ("  磁盘缓存：{0} 项 {1:N0} 字节" -f $cacheInfo.entries, $cacheInfo.bytes)
+    if ($tf.cold_first_enter -is [string]) { $notMeasured.Add('产品界面首屏缩略图（冷）：没有事件') }
 }
 
 $notMeasured.Add('操作系统文件缓存冷态（需要管理员清备用列表）')

@@ -1628,6 +1628,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             live: slint_file_manager::app::LiveEnv::inert(),
             backend: std::sync::Arc::new(slint_file_manager::fileops::SystemBackend),
             search: slint_file_manager::app::SearchEnv::production(),
+            // 右键菜单自测与缩略图无关，关闭以免后台解码干扰计时与对象计数
+            thumbs: slint_file_manager::app::ThumbEnv::off(),
         },
     );
     win.window()

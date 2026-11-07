@@ -13,6 +13,7 @@ mod live;
 mod menu;
 mod scenarios;
 mod search;
+mod thumbs;
 
 use ctx::{Ctx, Res};
 use serde_json::{Value, json};
@@ -129,18 +130,20 @@ fn cmd_run(args: &Args) -> Res<i32> {
         let (restore, f3) = dual::restore(size, scale).map_err(|e| format!("[恢复] {e}"))?;
         let (del, f4) = delete::delete(size, scale).map_err(|e| format!("[删除] {e}"))?;
         let (context, f5) = menu::context(size, scale).map_err(|e| format!("[右键菜单] {e}"))?;
+        let (thumbs, f6) = thumbs::thumbs(size, scale).map_err(|e| format!("[缩略图] {e}"))?;
         fails.extend(f1.into_iter().map(|f| format!("[单栏] {f}")));
         fails.extend(f2.into_iter().map(|f| format!("[双栏] {f}")));
         fails.extend(f3.into_iter().map(|f| format!("[恢复] {f}")));
         fails.extend(f4.into_iter().map(|f| format!("[删除] {f}")));
         fails.extend(f5.into_iter().map(|f| format!("[右键菜单] {f}")));
-        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context}));
+        fails.extend(f6.into_iter().map(|f| format!("[缩略图] {f}")));
+        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context, "thumbs": thumbs}));
     }
     let consistent = runs.windows(2).all(|w| w[0] == w[1]);
     if !consistent {
         fails.push("重复运行的状态记录不一致".into());
         // 指出第一处不同的步骤与字段，便于定位不确定性来源
-        'outer: for sec in ["single", "dual", "restore", "delete", "context"] {
+        'outer: for sec in ["single", "dual", "restore", "delete", "context", "thumbs"] {
             let (a, b) = (&runs[0][sec], &runs[1][sec]);
             for (x, y) in a
                 .as_array()
@@ -168,12 +171,13 @@ fn cmd_run(args: &Args) -> Res<i32> {
                 "failures": fails, "steps": runs[0]}),
     )?;
     println!(
-        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步，重复 {repeat} 次，{}；输出 {}",
+        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步、缩略图 {} 步，重复 {repeat} 次，{}；输出 {}",
         runs[0]["single"].as_array().map_or(0, |a| a.len()),
         runs[0]["dual"].as_array().map_or(0, |a| a.len()),
         runs[0]["restore"].as_array().map_or(0, |a| a.len()),
         runs[0]["delete"].as_array().map_or(0, |a| a.len()),
         runs[0]["context"].as_array().map_or(0, |a| a.len()),
+        runs[0]["thumbs"].as_array().map_or(0, |a| a.len()),
         if fails.is_empty() {
             "全部断言通过且结果一致"
         } else {

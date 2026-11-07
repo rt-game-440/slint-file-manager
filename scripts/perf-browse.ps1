@@ -2,13 +2,17 @@
 # 在 %TEMP%\sfm-perf 生成 60／1000／10000 个文件的目录，以 release 程序的 --bench-enter 反复进入，
 # 从 logs 中最新日志读取每次进入的 dir-loaded-us（读取完成回到界面线程）与 dir-ready-us（新内容第一帧渲染完成），
 # 汇总写入 artifacts/perf/browse-<时间>.json。需要交互式桌面（真实窗口、真实渲染器）。
-# 用法：powershell -File scripts/perf-browse.ps1 [-Counts 60,1000,10000] [-Runs 10] [-Dir 自己的目录]
+# 用法：powershell -File scripts/perf-browse.ps1 [-Counts 60,1000,10000] [-Runs 10] [-Dir 自己的目录] [-IntervalMs 400]
 # 缩略图的冷／热／重启条件与首屏事件见 scripts/perf-thumbs.ps1（复用本脚本的“可操作”计时）。
 param(
     [int[]]$Counts = @(60, 1000, 10000),
     [int]$Runs = 10,
     # 指定自己的目录（只读；公开记录只含统计）。指定后忽略 -Counts，条目数取目录内文件数
-    [string]$Dir = ''
+    [string]$Dir = '',
+    # 每一步（进入或返回上级）的间隔；缩略图计时需留足首屏完成的时间（perf-thumbs.ps1 用 2500）
+    [int]$IntervalMs = 400,
+    # 以单栏开始（默认双栏）
+    [switch]$Single
 )
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
@@ -47,7 +51,9 @@ $targets = if ($Dir) { ,@(@{ n = @(Get-ChildItem -LiteralPath $Dir -File).Count;
 foreach ($t in $targets) {
     $n = $t.n; $dir = $t.dir
     $before = Get-Date
-    $p = Start-Process $exe -ArgumentList "--bench-enter=`"$dir`"", "--bench-runs=$Runs" -PassThru
+    $benchArgs = @("--bench-enter=`"$dir`"", "--bench-runs=$Runs", "--bench-interval-ms=$IntervalMs")
+    if ($Single) { $benchArgs += '--bench-single' }
+    $p = Start-Process $exe -ArgumentList $benchArgs -PassThru
     if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error "$n 个文件：基准超时"; exit 1 }
     $log = Get-ChildItem logs -Filter *.log | Where-Object { $_.LastWriteTime -ge $before } |
         Sort-Object LastWriteTime | Select-Object -Last 1
