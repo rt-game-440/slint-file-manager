@@ -20,7 +20,7 @@
 | 真实窗口帧耗时日志 | `target\release\slint-file-manager.exe --debug-perf --open=目录 --smoke-ms=4000` | `logs/yyyy-MM-dd HH-mm-ss.log` |
 | 进入目录耗时基准（60／1000／10000 个文件） | `powershell -File scripts/perf-browse.ps1` | `artifacts/perf/browse-<时间>.json` |
 | 缩略图路线与首屏测量（冷／热／重启，含产品“可操作”计时；`-Dir 自己的目录` 只读跑匿名统计） | `powershell -File scripts/perf-thumbs.ps1 [-Dir 目录] [-Runs 5] [-SkipProduct]` | `artifacts/perf/thumbs-<时间>.json`（分项 JSON 在同名目录）、`logs/<时间>.log` |
-| 真实窗口截图（补充手段） | `powershell -File scripts/capture-window.ps1 [-Open 目录]` | `artifacts/real/<时间>/` |
+| 真实窗口截图（补充手段） | `powershell -File scripts/capture-window.ps1 [-Open 目录] [-Software]` | `artifacts/real/<时间>/`（失败不留图片，退出码 1） |
 | 观测框架整体验证 | `powershell -File scripts/verify-harness.ps1` | 退出码 |
 | 会话恢复（真实程序 + 临时数据目录） | `powershell -File scripts/verify-session.ps1`（已含在 `scripts/verify.ps1`） | 退出码 |
 | 真实回收站测试（看门狗：超时强杀并报告弹出的窗口标题，结束后核对回收站残留） | `powershell -File scripts/run-recycle-tests.ps1 [-Filter recycle] [-TimeoutSec 90]`；清扫历史残留加 `-Filter sweep_stale_fixtures -Ignored` | 退出码、回收站总数与夹具残留数 |
@@ -35,7 +35,16 @@
 | 截图对比（`compare`） | 与基线逐像素一致，或差异在容差内。**只说明“与基线一致”** | 视觉本身是否正确（基线可能就是错的，需 A2 视觉评审）；真实渲染器的表现 |
 | 逐帧采集（`frames`） | 动画定义本身：时长、缓动、过冲、终态；同一动画重复采集一致 | 真实运行是否流畅、掉帧、卡顿（模拟时钟没有真实耗时） |
 | 帧耗时日志（`--debug-perf`） | 真实窗口、真实渲染器下的帧间隔、渲染耗时、动画期间的掉帧 | 画面内容对不对（日志不含图像） |
-| 真实窗口截图（`capture-window.ps1`） | 真实渲染器、真实主题下实际出现了什么；与日志时间可对应 | 确定性：抓屏含遮挡物、依赖显示缩放，不能做基线比较，也不得外传（可能含桌面私人内容） |
+| 真实窗口截图（`capture-window.ps1`） | 真实渲染器、真实主题下实际出现了什么；与日志时间可对应 | 确定性：不能做基线比较；默认 femtovg 窗口在部分机器上无法被外部抓取（见下），需 `-Software` |
+
+### 真实窗口截图的原理与隐私防护（Issue #22 修复）
+
+- **旧问题根因**：旧脚本用 `CopyFromScreen` 抓“窗口矩形所在的屏幕像素”，拍到的是桌面上此刻显示的任何东西。实测在本机上，默认渲染器（femtovg/OpenGL）的无边框窗口对外部抓取是**全透明**的（WGC 帧 alpha 全为 0，`PrintWindow` 返回空白）：此时窗口即使是前台、`WindowFromPoint` 报“属于本窗口”，屏幕上该矩形里显示的仍是别的窗口，于是截到了用户的桌面。“置顶”不能解决；`GetWindowRect` 还含一圈不可见的缩放边框，边缘也永远是桌面像素。
+- **现做法**：用 Windows.Graphics.Capture 直接读取目标窗口自己的合成画面（与遮挡、前台、屏幕位置无关，不抓光标），启动时带 `--no-session` 与临时数据目录。最小化时没有帧，直接拒绝。
+- **一致性检查（失败即不保存、删除输出目录、退出码 1）**：帧不小于 200x200 且与窗口物理尺寸相符；至少一半采样点不透明；画面不是单一颜色。
+- **`-Software`**：设置 `SLINT_BACKEND=winit-software`，由软件渲染器呈现，WGC 能抓到。默认 femtovg 在上述机器上会被检查拒绝（提示“几乎全透明”）；要看 femtovg 的真实表现只能靠 `--debug-perf` 帧耗时日志，或在能正确合成的机器上不带 `-Software`。软件渲染截图的抗锯齿与 femtovg 有细微差别，同样不能做基线比较。
+- 验证记录（软件渲染）：被洋红色窗口完全遮挡、部分遮挡、窗口在后台（非前台）三种情况各截 6 张，内容都是应用本身，没有桌面内容；窗口最小化时拒绝保存。默认 femtovg 渲染的窗口在任何情况下都被检查拒绝。
+- 注意：截图的右栏默认显示用户主目录，含目录名；不要外传。
 
 ### 离屏截图与产品默认渲染器的差异
 
