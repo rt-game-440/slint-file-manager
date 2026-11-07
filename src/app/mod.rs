@@ -13,6 +13,9 @@
 //!   （[`crate::browse::location::RECYCLE_BIN`]），由外壳命名空间读取，视图里可“还原所选项目”。操作在工作线程逐项执行，
 //!   按真实结果汇报；完成后重新读取受影响位置的所有标签（本应用操作后刷新，不依赖目录监视，也不会重复条目）。
 //!   文件后端可注入（[`Env::backend`]）：产品用系统回收站，harness 用临时目录“回收站”。
+//! - 右键菜单（[`Controller::context_menu`]）：鼠标右键或菜单键／Shift+F10 呼出系统菜单（含 NanaZip 等扩展），
+//!   由 [`crate::shell_menu`] 在界面线程上同步显示；harness 用 [`MenuMode::Record`] 只记录请求。
+//!   选择语义与资源管理器一致：在未选中的项上右键先单选它，在已选项上右键保持当前选择，空白处右键清空选择。
 //! - 开启 `--debug-perf` 时记录进入目录的耗时：`dir-loaded-us`（结果回到界面线程）、
 //!   `dir-ready-us`（新内容第一帧渲染完成），均自导航请求起算；会话恢复耗时为 `session-restore-us`。
 
@@ -32,6 +35,7 @@ use crate::browse::{
 use crate::fileops::{Backend, SystemBackend};
 use crate::{
     ContentState, Crumb, MainWindow, NavKey, PaneView, SortKey, TabInfo, ViewMode, perf, shell,
+    shell_menu,
 };
 use model::ItemsModel;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -62,6 +66,30 @@ pub enum Opener {
     Record(Rc<RefCell<Vec<PathBuf>>>),
 }
 
+/// 右键菜单的处理方式。
+pub enum MenuMode {
+    /// 弹出真实的系统菜单（产品使用）。
+    Shell,
+    /// 只记录请求，不弹出菜单（harness 使用）。
+    Record(Rc<RefCell<Vec<MenuCall>>>),
+}
+
+/// 被记录的右键菜单请求。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MenuCall {
+    pub pane: usize,
+    pub target: shell_menu::Target,
+    pub intercept_open: bool,
+}
+
+/// 菜单占用的 GDI 对象达到此数量时提示重启（Windows 默认每进程上限 10000）。
+/// 菜单选项钩子（自测用：在弹出前改写选项，例如隐藏 NanaZip 项）。
+pub type MenuHook = Box<dyn Fn(&mut shell_menu::Options)>;
+
+const GDI_WARN: u32 = 8000;
+/// 菜单命令执行后延迟多久刷新所在目录（新建、粘贴、删除等的结果）。
+const REFRESH_AFTER_MENU: Duration = Duration::from_millis(700);
+
 /// 接线所需的外部环境。
 pub struct Env {
     /// 外部请求的起始目录（`--open=`）；`None` 时使用主目录。
@@ -71,6 +99,7 @@ pub struct Env {
     pub home: Option<PathBuf>,
     pub loader: Loader,
     pub opener: Opener,
+    pub menu: MenuMode,
     /// 会话存取位置；`None` 表示不恢复也不保存会话。
     pub store: Option<SessionStore>,
     /// 没有可恢复的会话时（首次运行、会话文件缺失或已降级）是否双栏。
@@ -88,6 +117,7 @@ impl Env {
             home: shell::home_dir(),
             loader: Loader::Threaded,
             opener: Opener::Shell,
+            menu: MenuMode::Shell,
             fresh_split: true,
             live: LiveEnv::production(
                 store
@@ -140,6 +170,13 @@ pub struct Controller {
     loader: Loader,
     opener: Opener,
     backend: Arc<dyn Backend>,
+    menu: MenuMode,
+    /// 右键菜单是否正在显示（防重入）
+    menu_busy: Cell<bool>,
+    /// 测试挂钩：每次弹出菜单前可修改 [`shell_menu::Options`]（自动导航、模拟未安装 NanaZip 等）
+    menu_hook: RefCell<Option<MenuHook>>,
+    /// 最近一次菜单的结果（或失败说明），供 harness 与自测读取
+    last_menu: RefCell<Option<Result<shell_menu::Report, String>>>,
     home: Option<PathBuf>,
     store: Option<SessionStore>,
     /// 当前打开的对话框（删除确认或结果说明）；同一时刻至多一个
@@ -225,6 +262,10 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         loader: env.loader,
         opener: env.opener,
         backend: env.backend,
+        menu: env.menu,
+        menu_busy: Cell::new(false),
+        menu_hook: RefCell::new(None),
+        last_menu: RefCell::new(None),
         home: env.home,
         store: env.store,
         dialog: RefCell::new(None),
@@ -285,6 +326,7 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_item_pointer, c => |p, i, ctrl, shift| c.pointer(pane(p), i, ctrl, shift));
     on!(on_item_activate, c => |p, i| c.activate_index(pane(p), i));
     on!(on_background_pointer, c => |p, ctrl| c.background(pane(p), ctrl));
+    on!(on_context_menu, c => |p, i, x, y, kb| c.context_menu(pane(p), i, x, y, kb));
     on!(on_nav_key, c => |p, key, shift, ctrl, cols, page| c.nav(
         pane(p), key, shift, ctrl, cols, page
     ));
@@ -799,6 +841,167 @@ impl Controller {
         }
         self.sync_pane_view(p);
         self.sync_global();
+    }
+
+    // ---------- 右键菜单 ----------
+
+    /// 右键菜单。`index` ≥ 0 为鼠标在该项上右键；< 0 为空白处（鼠标）或键盘呼出（`keyboard`，`x`/`y` 为锚点，逻辑像素）。
+    /// 选择：未选中的项先单选，已选项保持选择；鼠标在空白处右键清空选择；键盘呼出时有选择则作用于选择，否则作用于文件夹。
+    pub fn context_menu(&self, p: usize, index: i32, x: f32, y: f32, keyboard: bool) {
+        if self.menu_busy.get() {
+            return;
+        }
+        self.activate_pane(p);
+        let Some(loc) = self.location_in(p) else {
+            return;
+        };
+        match idx(index) {
+            Some(i) => {
+                let selected = self.ws.borrow().active_tab(p).is_selected(i);
+                if !selected {
+                    self.mutate(p, |t| t.click(i, false, false));
+                }
+            }
+            None if !keyboard => self.mutate(p, |t| t.click_empty(false)),
+            None => {}
+        }
+        // 回收站是虚拟位置，没有磁盘路径可交给外壳菜单：还原、清空走视图自己的按钮。
+        if self.ws.borrow().active_tab(p).is_recycle_bin() {
+            return;
+        }
+        let paths = self.ws.borrow().active_tab(p).selected_paths();
+        let single_dir = paths.len() == 1 && paths[0].is_dir();
+        let target = if paths.is_empty() {
+            shell_menu::Target::Background(loc.clone())
+        } else {
+            shell_menu::Target::Items(paths)
+        };
+        if let MenuMode::Record(log) = &self.menu {
+            log.borrow_mut().push(MenuCall {
+                pane: p,
+                target,
+                intercept_open: single_dir,
+            });
+            return;
+        }
+        let anchor = match (keyboard, self.window.upgrade()) {
+            (true, Some(w)) => {
+                let s = w.window().scale_factor();
+                shell_menu::Anchor::Client((x * s).round() as i32, (y * s).round() as i32)
+            }
+            _ => shell_menu::Anchor::Cursor,
+        };
+        // harness 特性下 Options 另有自测字段，发布构建没有，故 ..Default 在发布构建里是多余的。
+        #[allow(clippy::needless_update)]
+        let mut options = shell_menu::Options {
+            intercept_open: single_dir,
+            ..Default::default()
+        };
+        if let Some(hook) = self.menu_hook.borrow().as_ref() {
+            hook(&mut options);
+        }
+        let req = shell_menu::Request {
+            target: target.clone(),
+            anchor,
+            options,
+        };
+        // 菜单是模态循环：期间不持有任何 RefCell 借用，并拒绝重入。
+        self.menu_busy.set(true);
+        let result = shell_menu::show(&req);
+        self.menu_busy.set(false);
+        match result {
+            Ok(report) => {
+                self.after_menu(p, &loc, &target, &report);
+                *self.last_menu.borrow_mut() = Some(Ok(report));
+            }
+            Err(e) => {
+                self.set_message(&e.to_string());
+                if matches!(e, shell_menu::MenuError::Missing(_)) {
+                    self.refresh_quiet(p, &loc); // 列表已过期，刷新后再右键
+                }
+                *self.last_menu.borrow_mut() = Some(Err(e.to_string()));
+            }
+        }
+        self.focus_pane(p);
+    }
+
+    fn after_menu(
+        &self,
+        p: usize,
+        loc: &std::path::Path,
+        target: &shell_menu::Target,
+        report: &shell_menu::Report,
+    ) {
+        use shell_menu::{Custom, Outcome};
+        if perf::enabled() {
+            perf::event("menu-build-ms", Some(report.build.as_millis() as i64));
+            perf::event("menu-gdi", Some(shell_menu::gui_resources().0 as i64));
+        }
+        match &report.outcome {
+            Outcome::Cancelled => {}
+            Outcome::Invoked { .. } => self.refresh_later(p, loc),
+            Outcome::InvokeFailed { label, error, .. } => {
+                let name = if label.is_empty() {
+                    "所选命令"
+                } else {
+                    label
+                };
+                self.set_message(&format!("“{name}”未能执行：{error}"));
+            }
+            Outcome::Intercepted { .. } => {
+                if let shell_menu::Target::Items(v) = target
+                    && let Some(dir) = v.first()
+                {
+                    self.navigate_path(p, dir.clone());
+                }
+            }
+            Outcome::Custom(Custom::Refresh) => self.refresh(p),
+        }
+        let gdi = shell_menu::gui_resources().0;
+        if gdi >= GDI_WARN {
+            self.set_message(&format!(
+                "图形资源占用较高（{gdi}/10000），建议重启应用，否则界面可能无法绘制"
+            ));
+        }
+    }
+
+    /// 菜单命令执行后，稍等片刻再刷新该面板（若仍在原位置）。
+    fn refresh_later(&self, p: usize, loc: &std::path::Path) {
+        let weak = REGISTRY
+            .with(|r| r.borrow().get(&self.id).cloned())
+            .unwrap_or_default();
+        let loc = loc.to_path_buf();
+        slint::Timer::single_shot(REFRESH_AFTER_MENU, move || {
+            if let Some(c) = weak.upgrade() {
+                c.refresh_quiet(p, &loc);
+            }
+        });
+    }
+
+    /// 刷新面板的当前标签，但只在它仍位于 `loc` 时（不抢活动面板，不改标签）。
+    fn refresh_quiet(&self, p: usize, loc: &std::path::Path) {
+        let job = {
+            let mut ws = self.ws.borrow_mut();
+            let t = ws.active_tab_mut(p);
+            if t.location() != Some(loc) {
+                return;
+            }
+            let tab = t.id();
+            t.refresh().map(|req| Job { tab, req })
+        };
+        if let Some(j) = job {
+            self.start(p, j);
+        }
+    }
+
+    /// 测试挂钩：设置后每次弹出菜单前调用（可改选项）。
+    pub fn set_menu_hook(&self, hook: Option<MenuHook>) {
+        *self.menu_hook.borrow_mut() = hook;
+    }
+
+    /// 取走最近一次菜单的结果（`Err` 为未能弹出的原因）。
+    pub fn take_menu_result(&self) -> Option<Result<shell_menu::Report, String>> {
+        self.last_menu.borrow_mut().take()
     }
 
     // ---------- 激活 ----------

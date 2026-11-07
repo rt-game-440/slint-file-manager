@@ -13,6 +13,8 @@ component GridCell inherits Rectangle {
     in property <bool> pane-focused;
     callback pointer(int, bool, bool);
     callback activate(int);
+    // 右键松开：请求这一项的右键菜单
+    callback context(int);
 
     border-radius: Theme.radius;
     background: root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
@@ -31,6 +33,9 @@ component GridCell inherits Rectangle {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                 root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+            }
+            if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
+                root.context(root.index);
             }
         }
         double-clicked => {
@@ -76,6 +81,8 @@ export component FileGrid inherits Rectangle {
     callback item-pointer(int, bool, bool);
     callback item-activate(int);
     callback background-pointer(bool);
+    callback item-context(int);
+    callback background-context();
 
     property <length> pad: 12px;
     property <length> scrollbar-reserve: 12px;
@@ -110,6 +117,15 @@ export component FileGrid inherits Rectangle {
         root.ensure-visible(root.cursor-index);
     }
 
+    // 键盘（菜单键、Shift+F10）呼出右键菜单时的锚点：光标项中央，限制在可见区域内（相对本控件）
+    public function anchor-x(i: int) -> length {
+        return root.pad + mod(max(i, 0), root.cols) * root.cell-w + root.cell-w / 2;
+    }
+
+    public function anchor-y(i: int) -> length {
+        return min(max(root.row-top(max(i, 0)) + lv.content-y + root.cell-h / 2, 8px), root.height - 8px);
+    }
+
     lv := ListView {
         accessible-label: "文件网格";
         // 最后一行是填充行：让网格下方的空白处也能接收点击（清空选择）
@@ -120,6 +136,9 @@ export component FileGrid inherits Rectangle {
                 pointer-event(e) => {
                     if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                         root.background-pointer(e.modifiers.control);
+                    }
+                    if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
+                        root.background-context();
                     }
                 }
             }
@@ -138,6 +157,9 @@ export component FileGrid inherits Rectangle {
                 }
                 activate(i) => {
                     root.item-activate(i);
+                }
+                context(i) => {
+                    root.item-context(i);
                 }
             }
         }
@@ -205,6 +227,8 @@ component ListRow inherits Rectangle {
     in property <length> size-w;
     callback pointer(int, bool, bool);
     callback activate(int);
+    // 右键松开：请求这一项的右键菜单
+    callback context(int);
 
     border-radius: 6px;
     background: root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
@@ -223,6 +247,9 @@ component ListRow inherits Rectangle {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                 root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+            }
+            if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
+                root.context(root.index);
             }
         }
         double-clicked => {
@@ -297,6 +324,8 @@ export component FileList inherits Rectangle {
     callback item-pointer(int, bool, bool);
     callback item-activate(int);
     callback background-pointer(bool);
+    callback item-context(int);
+    callback background-context();
     callback sort-clicked(SortKey);
 
     property <length> date-w: 140px * Theme.text-scale;
@@ -318,6 +347,15 @@ export component FileList inherits Rectangle {
 
     changed cursor-index => {
         root.ensure-visible(root.cursor-index);
+    }
+
+    // 键盘呼出右键菜单时的锚点：光标行，限制在可见区域内（相对本控件）
+    public function anchor-x(i: int) -> length {
+        return 72px;
+    }
+
+    public function anchor-y(i: int) -> length {
+        return min(max(root.header-h + 1px + max(i, 0) * Theme.row-h + lv.content-y + Theme.row-h / 2, root.header-h + 8px), root.height - 8px);
     }
 
     VerticalLayout {
@@ -388,6 +426,9 @@ export component FileList inherits Rectangle {
                         if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                             root.background-pointer(e.modifiers.control);
                         }
+                        if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
+                            root.background-context();
+                        }
                     }
                 }
 
@@ -407,6 +448,9 @@ export component FileList inherits Rectangle {
                     }
                     activate(idx) => {
                         root.item-activate(idx);
+                    }
+                    context(idx) => {
+                        root.item-context(idx);
                     }
                 }
             }

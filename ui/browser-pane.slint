@@ -582,6 +582,8 @@ export component BrowserPane inherits Rectangle {
     callback item-pointer(int, int, bool, bool);
     callback item-activate(int, int);
     callback background-pointer(int, bool);
+    // 右键菜单：面板、条目序号（-1 为文件夹空白处；键盘呼出时由 Rust 按选择决定）、锚点坐标（窗口内逻辑像素，仅键盘用）、是否来自键盘
+    callback context-menu(int, int, length, length, bool);
     callback nav-key(int, NavKey, bool, bool, int, int);
     callback select-all(int);
     callback activate-selection(int);
@@ -729,6 +731,10 @@ export component BrowserPane inherits Rectangle {
                     root.toggle-cursor(root.pane-id);
                     return accept;
                 }
+                if (e.text == Key.Menu || (e.text == Key.F10 && e.modifiers.shift)) {
+                    root.context-key();
+                    return accept;
+                }
                 reject
             }
 
@@ -751,6 +757,14 @@ export component BrowserPane inherits Rectangle {
                         content.focus();
                         root.background-pointer(root.pane-id, ctrl);
                     }
+                    item-context(i) => {
+                        content.focus();
+                        root.context-menu(root.pane-id, i, 0px, 0px, false);
+                    }
+                    background-context() => {
+                        content.focus();
+                        root.context-menu(root.pane-id, -1, 0px, 0px, false);
+                    }
                 }
 
                 file-list := FileList {
@@ -772,8 +786,27 @@ export component BrowserPane inherits Rectangle {
                         content.focus();
                         root.background-pointer(root.pane-id, ctrl);
                     }
+                    item-context(i) => {
+                        content.focus();
+                        root.context-menu(root.pane-id, i, 0px, 0px, false);
+                    }
+                    background-context() => {
+                        content.focus();
+                        root.context-menu(root.pane-id, -1, 0px, 0px, false);
+                    }
                     sort-clicked(k) => {
                         root.set-sort(root.pane-id, k, k == root.v.sort-key ? !root.v.sort-ascending : true);
+                    }
+                }
+
+                // 空文件夹没有文件视图：在状态面板后面接住右键，空文件夹里也能“新建”
+                empty-context := TouchArea {
+                    visible: root.v.state == ContentState.empty;
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
+                            content.focus();
+                            root.context-menu(root.pane-id, -1, 0px, 0px, false);
+                        }
                     }
                 }
 
@@ -843,6 +876,15 @@ export component BrowserPane inherits Rectangle {
         width: parent.width;
         height: 2px;
         background: Theme.accent;
+    }
+
+    // 键盘呼出右键菜单：锚点取光标项（无光标项时取视图左上附近）
+    function context-key() {
+        if (root.v.view == ViewMode.grid) {
+            root.context-menu(root.pane-id, -1, file-grid.absolute-position.x + file-grid.anchor-x(root.v.cursor-index), file-grid.absolute-position.y + file-grid.anchor-y(root.v.cursor-index), true);
+        } else {
+            root.context-menu(root.pane-id, -1, file-list.absolute-position.x + file-list.anchor-x(root.v.cursor-index), file-list.absolute-position.y + file-list.anchor-y(root.v.cursor-index), true);
+        }
     }
 
     pure function nav-cols() -> int {

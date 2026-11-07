@@ -188,6 +188,7 @@ export component MainWindow inherits Window {
     callback item-pointer(int, int, bool, bool);
     callback item-activate(int, int);
     callback background-pointer(int, bool);
+    callback context-menu(int, int, length, length, bool);
     callback nav-key(int, NavKey, bool, bool, int, int);
     callback select-all(int);
     callback activate-selection(int);
@@ -792,6 +793,9 @@ export component MainWindow inherits Window {
                             background-pointer(a0, a1) => {
                                 root.background-pointer(a0, a1);
                             }
+                            context-menu(a0, a1, a2, a3, a4) => {
+                                root.context-menu(a0, a1, a2, a3, a4);
+                            }
                             nav-key(a0, a1, a2, a3, a4, a5) => {
                                 root.nav-key(a0, a1, a2, a3, a4, a5);
                             }
@@ -873,6 +877,9 @@ export component MainWindow inherits Window {
                             }
                             background-pointer(a0, a1) => {
                                 root.background-pointer(a0, a1);
+                            }
+                            context-menu(a0, a1, a2, a3, a4) => {
+                                root.context-menu(a0, a1, a2, a3, a4);
                             }
                             nav-key(a0, a1, a2, a3, a4, a5) => {
                                 root.nav-key(a0, a1, a2, a3, a4, a5);

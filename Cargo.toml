@@ -29,14 +29,19 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-# 回收站（IShellFolder 外壳命名空间枚举、undelete 还原）与 SHFileOperationW 回收删除：COM 接口封装，仅 src/recycle.rs 使用
+# 回收站（IShellFolder 外壳命名空间枚举、undelete 还原）与 SHFileOperationW 回收删除（src/recycle.rs）、
+# 原生右键菜单（IContextMenu 系列接口，src/shell_menu；GDI／HiDpi／线程／键盘特性用于菜单锚点与资源观测）：COM 接口封装
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Ole",
+    "Win32_System_Threading",
     "Win32_System_Variant",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
@@ -57,4 +62,10 @@ path = "src/main.rs"
 [[bin]]
 name = "harness"
 path = "src/bin/harness/main.rs"
+required-features = ["harness"]
+
+# 真实窗口里的原生右键菜单自测（Issue #9）：真实事件循环、真实外壳、受控夹具；发布产物不含
+[[bin]]
+name = "menu-selftest"
+path = "src/bin/menu-selftest/main.rs"
 required-features = ["harness"]
