@@ -8,6 +8,7 @@ mod dual;
 mod dump;
 mod fixture;
 mod frames;
+mod live;
 mod scenarios;
 
 use ctx::{Ctx, Res};
@@ -320,6 +321,31 @@ fn cmd_compare(args: &Args) -> Res<i32> {
     Ok(code)
 }
 
+/// live：磁盘、收藏与目录变化同步脚本（真实文件系统通知与 subst 虚拟盘，结果取决于真实时钟，只断言不比对记录）。
+fn cmd_live(args: &Args) -> Res<i32> {
+    let review = args.opts.get("review-dir").map(PathBuf::from);
+    let (items, fails) = live::run(review.clone())?;
+    let out = args.dir("out", &format!("{ARTIFACTS}/state/live.json"));
+    write_json(
+        &out,
+        &json!({"meta": meta(args, 1.0)?, "failures": fails, "steps": items}),
+    )?;
+    println!(
+        "磁盘／收藏／目录变化同步：{} 步，{}；输出 {}",
+        items.len(),
+        if fails.is_empty() {
+            "全部通过"
+        } else {
+            "存在失败"
+        },
+        out.display()
+    );
+    for f in &fails {
+        println!("  失败：{f}");
+    }
+    Ok(if fails.is_empty() { 0 } else { 1 })
+}
+
 fn cmd_frames(args: &Args) -> Res<i32> {
     let scale: f32 = args.get("scale", "1").parse()?;
     let size = args.size()?;
@@ -411,10 +437,12 @@ fn main() {
             "bless" => cmd_bless(&args),
             "compare" => cmd_compare(&args),
             "frames" => cmd_frames(&args),
+            "live" => cmd_live(&args),
             "review" => cmd_review(&args),
-            c => Err(
-                format!("未知子命令 {c}；可用：tree run snap bless compare frames review").into(),
-            ),
+            c => Err(format!(
+                "未知子命令 {c}；可用：tree run snap bless compare frames live review"
+            )
+            .into()),
         }
     })()
     .unwrap_or_else(|e| {

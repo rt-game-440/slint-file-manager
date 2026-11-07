@@ -50,3 +50,16 @@ export struct PaneView {
     can-forward: bool,
     can-up: bool,
 }
+
+// 侧栏的一行。标题行（header）只是分组小标题；收藏行 removable 时悬停显示“×”。
+export struct SidebarEntry {
+    id: string,
+    label: string,
+    icon: string,
+    enabled: bool,
+    header: bool,
+    // 失效的收藏：警示图标与灰字，说明在 description 里
+    warn: bool,
+    description: string,
+    removable: bool,
+}

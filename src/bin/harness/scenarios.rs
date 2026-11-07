@@ -156,6 +156,20 @@ fn list_text_scale(c: &Ctx) -> Res<()> {
 
 // ---------- 双栏与标签（Issue #6） ----------
 
+/// 侧栏：磁盘、收藏（含失效项）、OneDrive；点“照片”收藏进入，星标选中。
+fn sidebar_places(c: &Ctx) -> Res<()> {
+    c.click(&c.button("照片")?);
+    c.pump();
+    Ok(())
+}
+
+/// 点击失效的收藏：不导航，状态栏说明原因。
+fn sidebar_invalid_favorite(c: &Ctx) -> Res<()> {
+    c.click(&c.button("旅行素材")?);
+    c.pump();
+    Ok(())
+}
+
 fn dual_default(c: &Ctx) -> Res<()> {
     c.click(&c.item("说明.md")?);
     Ok(())
@@ -230,6 +244,18 @@ pub const STATIC: &[Scenario] = &[
         "样例目录网格视图，单击选中“图片003.webp”",
         "A2 布局：浅灰侧栏、融合顶栏（排序／视图／双栏／搜索，右上角窗口按钮）、面板顶部标签带（一个标签“样例目录”和“+”，单栏只显示一个面板）、近白内容区；文件夹在前、名称自然排序（报告2 在 报告10 前）；选中项为浅蓝圆角底与蓝色描边；状态栏显示“26 个项目　已选择 1 个项目（…）”",
         grid_selected,
+    ),
+    s(
+        "sidebar-places",
+        "展示环境：三个磁盘（系统盘、数据盘、U 盘）、三个收藏（有效／盘符被另一块盘占用／磁盘未连接）、OneDrive；点击“照片”收藏进入",
+        "侧栏分组“收藏／此电脑／云盘”清晰；U 盘用 USB 图标；当前位置对应的收藏行为淡蓝高亮；失效的两个收藏为灰字加黄色警示图标；工具栏星标为选中外观；内容区是照片文件夹的 12 张图片",
+        sidebar_places,
+    ),
+    s(
+        "sidebar-invalid-favorite",
+        "展示环境，点击失效的收藏“旅行素材”（盘符现在是另一块磁盘）",
+        "没有导航（仍在样例目录）；状态栏右侧提示“收藏‘旅行素材’已失效（该盘符现在是另一块磁盘），不会改指向其他位置”；失效收藏仍为灰字加警示图标",
+        sidebar_invalid_favorite,
     ),
     s(
         "grid-multi",
@@ -407,6 +433,12 @@ fn names<'a>(it: impl Iterator<Item = &'a str>) -> String {
 /// 按场景打开窗口并执行 setup。
 pub fn open(name: &str, size: (u32, u32), scale: f32) -> Res<Ctx> {
     let sc = find_static(name)?;
+    // 名称以 sidebar- 开头的场景使用固定的磁盘／收藏展示环境（见 live::showcase_env）
+    let live = if name.starts_with("sidebar-") {
+        Some(crate::live::showcase_env(name)?)
+    } else {
+        None
+    };
     let c = Ctx::open(
         size,
         scale,
@@ -414,6 +446,7 @@ pub fn open(name: &str, size: (u32, u32), scale: f32) -> Res<Ctx> {
             text_scale: sc.text_scale,
             load: sc.load,
             split: sc.split,
+            live,
             ..Opts::default()
         },
     )?;

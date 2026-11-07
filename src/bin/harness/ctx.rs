@@ -6,7 +6,8 @@ use i_slint_backend_testing::{
 };
 use slint::ComponentHandle;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
-use slint_file_manager::app::{self, Controller, Env, Loader, Opener};
+use slint_file_manager::app::{self, Controller, DriveSource, Env, LiveEnv, Loader, Opener};
+use slint_file_manager::browse::places::Drive;
 use slint_file_manager::browse::session::SessionStore;
 use slint_file_manager::{MainWindow, Theme};
 use std::cell::RefCell;
@@ -108,6 +109,8 @@ pub struct Ctx {
     pub ctl: Rc<Controller>,
     /// “用默认应用打开”的记录（harness 不启动任何程序）
     pub opened: Rc<RefCell<Vec<PathBuf>>>,
+    /// 注入的磁盘列表（`LiveEnv` 使用 `DriveSource::Fixed` 时），修改它即模拟 U 盘插拔
+    pub drives: Option<Rc<RefCell<Vec<Drive>>>>,
     t0: u64,
 }
 
@@ -120,6 +123,8 @@ pub struct Opts {
     pub split: bool,
     /// 会话保存目录；`None` 表示不恢复也不保存（绝不使用用户真实目录，见 fixture::session_dir）
     pub session: Option<PathBuf>,
+    /// 侧栏磁盘／收藏与目录监视的环境；`None` 为惰性环境（无磁盘、无收藏、不监视）
+    pub live: Option<LiveEnv>,
 }
 
 impl Default for Opts {
@@ -130,6 +135,7 @@ impl Default for Opts {
             load: true,
             split: false,
             session: None,
+            live: None,
         }
     }
 }
@@ -149,6 +155,13 @@ impl Ctx {
         let win = MainWindow::new()?;
         win.global::<Theme>().set_text_scale(o.text_scale);
         let opened = Rc::new(RefCell::new(Vec::new()));
+        let drives = match &o.live {
+            Some(LiveEnv {
+                drives: DriveSource::Fixed(h),
+                ..
+            }) => Some(h.clone()),
+            _ => None,
+        };
         let ctl = app::wire(
             &win,
             Env {
@@ -163,6 +176,7 @@ impl Ctx {
                 opener: Opener::Record(opened.clone()),
                 store: o.session.map(SessionStore::at),
                 fresh_split: o.split,
+                live: o.live.unwrap_or_else(LiveEnv::inert),
             },
         );
         win.show()?;
@@ -185,6 +199,7 @@ impl Ctx {
             win,
             ctl,
             opened,
+            drives,
             t0: get_mocked_time(),
         };
         if o.load {

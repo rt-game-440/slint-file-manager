@@ -12,7 +12,10 @@
 //! - 开启 `--debug-perf` 时记录进入目录的耗时：`dir-loaded-us`（结果回到界面线程）、
 //!   `dir-ready-us`（新内容第一帧渲染完成），均自导航请求起算；会话恢复耗时为 `session-restore-us`。
 
+pub mod live;
 pub mod model;
+
+pub use live::{DriveSource, LiveEnv};
 
 use crate::browse::location::{self, Crumb as PathCrumb};
 use crate::browse::session::{LoadOutcome, SessionState, SessionStore};
@@ -65,6 +68,8 @@ pub struct Env {
     pub store: Option<SessionStore>,
     /// 没有可恢复的会话时（首次运行、会话文件缺失或已降级）是否双栏。
     pub fresh_split: bool,
+    /// 侧栏的磁盘与收藏、目录监视（见 [`live`]）。
+    pub live: LiveEnv,
 }
 
 impl Env {
@@ -74,8 +79,13 @@ impl Env {
             home: shell::home_dir(),
             loader: Loader::Threaded,
             opener: Opener::Shell,
-            store,
             fresh_split: true,
+            live: LiveEnv::production(
+                store
+                    .as_ref()
+                    .map(|s| crate::browse::places::FavoritesStore::at(s.dir())),
+            ),
+            store,
         }
     }
 }
@@ -130,6 +140,7 @@ pub struct Controller {
     /// 会话降级说明，整个运行期间保留在状态栏（没有更紧急的提示时显示）
     notice: RefCell<String>,
     saver: slint::Timer,
+    live: live::Live,
 }
 
 impl Drop for Controller {
@@ -162,6 +173,13 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         }
         Some(LoadOutcome::Missing) | None => fresh(),
     };
+    let (live, fav_notice) = live::Live::new(env.live);
+    if !fav_notice.is_empty() {
+        if !notice.is_empty() {
+            notice.push('\n');
+        }
+        notice.push_str(&fav_notice);
+    }
     let ws = Rc::new(RefCell::new(Workspace::from_session(&state)));
     let ui = [0, 1].map(|p| {
         let items = Rc::new(ItemsModel::new(ws.clone(), p));
@@ -180,6 +198,7 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
     window.set_right_crumbs(ModelRc::from(ui[1].crumbs.clone()));
     window.set_left_tabs(ModelRc::from(ui[0].tabs.clone()));
     window.set_right_tabs(ModelRc::from(ui[1].tabs.clone()));
+    window.set_sidebar_places(live.model());
     let c = Rc::new(Controller {
         id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         window: window.as_weak(),
@@ -195,9 +214,11 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         message: RefCell::new(String::new()),
         notice: RefCell::new(notice),
         saver: slint::Timer::default(),
+        live,
     });
     REGISTRY.with(|r| r.borrow_mut().insert(c.id, Rc::downgrade(&c)));
     connect(window, &c);
+    c.live_start();
     {
         let weak = Rc::downgrade(&c);
         c.saver
@@ -260,6 +281,8 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_switch_pane, c => || c.switch_pane());
     on!(on_toggle_split, c => || c.toggle_split());
     on!(on_sidebar_clicked, c => |id| c.sidebar(&id));
+    on!(on_sidebar_remove, c => |id| c.sidebar_remove(&id));
+    on!(on_toggle_favorite, c => || c.toggle_favorite());
     let weak = w.as_weak();
     w.on_request_close(move || {
         if let Some(w) = weak.upgrade() {
@@ -576,12 +599,7 @@ impl Controller {
 
     /// 侧栏入口作用于活动面板。
     fn sidebar(&self, id: &str) {
-        if id == "home"
-            && let Some(h) = self.home.clone()
-        {
-            let p = self.ws.borrow().active_pane();
-            self.navigate_path(p, h);
-        }
+        self.sidebar_click(id);
     }
 
     /// 导航产生的读取：清提示、记时、排队，并刷新面板（显示“加载中”）。
@@ -603,23 +621,30 @@ impl Controller {
             {
                 touched.push(p);
             }
-            match &self.loader {
-                Loader::Threaded => {
-                    let id = self.id;
-                    std::thread::spawn(move || {
-                        post(
-                            id,
-                            Msg::Loaded {
-                                tab: job.tab,
-                                loaded: job.req.run(),
-                            },
-                        )
-                    });
-                }
-                Loader::Manual(q) => q.borrow_mut().push_back(job),
-            }
+            // 显式读取（导航、刷新、本应用操作后的刷新）覆盖此前待处理的外部变化信号，不会再重复读一次
+            self.live.clear_pending(job.tab);
+            self.run_job(job);
         }
         touched
+    }
+
+    /// 把一次读取交给加载器。
+    fn run_job(&self, job: Job) {
+        match &self.loader {
+            Loader::Threaded => {
+                let id = self.id;
+                std::thread::spawn(move || {
+                    post(
+                        id,
+                        Msg::Loaded {
+                            tab: job.tab,
+                            loaded: job.req.run(),
+                        },
+                    )
+                });
+            }
+            Loader::Manual(q) => q.borrow_mut().push_back(job),
+        }
     }
 
     /// 手动模式：执行所有排队的加载请求并应用结果，返回执行数量。线程模式下恒为 0。
@@ -655,6 +680,12 @@ impl Controller {
     }
 
     fn on_loaded(&self, tab: TabId, l: Loaded) {
+        self.live.note_loaded(tab);
+        self.apply_loaded(tab, l);
+        self.live_after_load(tab);
+    }
+
+    fn apply_loaded(&self, tab: TabId, l: Loaded) {
         // (面板, 是否为该面板当前标签, 条目数)；标签已关闭则丢弃
         let outcome = {
             let mut ws = self.ws.borrow_mut();
@@ -960,8 +991,8 @@ impl Controller {
         let t = ws.active_tab(active);
         w.set_active_pane(active as i32);
         w.set_split(ws.is_split());
-        let home_current = t.location().is_some() && t.location() == self.home.as_deref();
-        w.set_sidebar_current(if home_current { "home" } else { "" }.into());
+        w.set_sidebar_current(self.sidebar_current_id(t.location()).into());
+        w.set_current_favorite(self.is_current_favorite(t.location()));
         w.set_selected_count(t.selected_count() as i32);
         let status: SharedString = if *t.state() == LoadState::Ready {
             let mut s = format!("{} 个项目", t.rows().len());
@@ -980,6 +1011,8 @@ impl Controller {
         };
         w.set_status_text(status);
         w.set_status_message(message.into());
+        drop(ws);
+        self.sync_watches();
     }
 
     // ---------- 只读访问（harness 与基准使用） ----------

@@ -5,9 +5,11 @@ pub mod entry;
 pub mod format;
 pub mod history;
 pub mod location;
+pub mod places;
 pub mod session;
 pub mod sort;
 pub mod tab;
+pub mod watch;
 pub mod workspace;
 
 pub use entry::{Entry, ListError, ListErrorKind, list_dir};
