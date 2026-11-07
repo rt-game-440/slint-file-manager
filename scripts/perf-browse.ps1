@@ -1,11 +1,14 @@
-# 进入目录耗时基准（Issue #1 目标：进入目录到可操作 ≤ 200ms）。
+﻿# 进入目录耗时基准（Issue #1 目标：进入目录到可操作 ≤ 200ms）。
 # 在 %TEMP%\sfm-perf 生成 60／1000／10000 个文件的目录，以 release 程序的 --bench-enter 反复进入，
 # 从 logs 中最新日志读取每次进入的 dir-loaded-us（读取完成回到界面线程）与 dir-ready-us（新内容第一帧渲染完成），
 # 汇总写入 artifacts/perf/browse-<时间>.json。需要交互式桌面（真实窗口、真实渲染器）。
-# 用法：powershell -File scripts/perf-browse.ps1 [-Counts 60,1000,10000] [-Runs 10]
+# 用法：powershell -File scripts/perf-browse.ps1 [-Counts 60,1000,10000] [-Runs 10] [-Dir 自己的目录]
+# 缩略图的冷／热／重启条件与首屏事件见 scripts/perf-thumbs.ps1（复用本脚本的“可操作”计时）。
 param(
     [int[]]$Counts = @(60, 1000, 10000),
-    [int]$Runs = 10
+    [int]$Runs = 10,
+    # 指定自己的目录（只读；公开记录只含统计）。指定后忽略 -Counts，条目数取目录内文件数
+    [string]$Dir = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
@@ -40,8 +43,9 @@ function Stats([double[]]$v) {
 }
 
 $results = @()
-foreach ($n in $Counts) {
-    $dir = Ensure-Dir $n
+$targets = if ($Dir) { ,@(@{ n = @(Get-ChildItem -LiteralPath $Dir -File).Count; dir = $Dir }) } else { @($Counts | ForEach-Object { @{ n = $_; dir = (Ensure-Dir $_) } }) }
+foreach ($t in $targets) {
+    $n = $t.n; $dir = $t.dir
     $before = Get-Date
     $p = Start-Process $exe -ArgumentList "--bench-enter=`"$dir`"", "--bench-runs=$Runs" -PassThru
     if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error "$n 个文件：基准超时"; exit 1 }

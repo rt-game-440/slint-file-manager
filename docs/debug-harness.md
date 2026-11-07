@@ -17,6 +17,7 @@
 | 生成 3 级审阅清单 | `powershell -File scripts/harness.ps1 review` | `artifacts/review/REVIEW.md` |
 | 真实窗口帧耗时日志 | `target\release\slint-file-manager.exe --debug-perf --open=目录 --smoke-ms=4000` | `logs/yyyy-MM-dd HH-mm-ss.log` |
 | 进入目录耗时基准（60／1000／10000 个文件） | `powershell -File scripts/perf-browse.ps1` | `artifacts/perf/browse-<时间>.json` |
+| 缩略图路线与首屏测量（冷／热／重启，含产品“可操作”计时；`-Dir 自己的目录` 只读跑匿名统计） | `powershell -File scripts/perf-thumbs.ps1 [-Dir 目录] [-Runs 5] [-SkipProduct]` | `artifacts/perf/thumbs-<时间>.json`（分项 JSON 在同名目录）、`logs/<时间>.log` |
 | 真实窗口截图（补充手段） | `powershell -File scripts/capture-window.ps1 [-Open 目录]` | `artifacts/real/<时间>/` |
 | 观测框架整体验证 | `powershell -File scripts/verify-harness.ps1` | 退出码 |
 | 会话恢复（真实程序 + 临时数据目录） | `powershell -File scripts/verify-session.ps1`（已含在 `scripts/verify.ps1`） | 退出码 |
@@ -126,6 +127,9 @@
 - 内容：`start`、`frame n= interval_ms= render_ms= animating= dropped=`、`event <名称>`、`summary`（帧数、p50、p95、最大间隔、掉帧数）。
 - 掉帧：动画期间相邻两帧间隔超过 25ms（`SFM_PERF_DROP_MS` 可改）。每次动画的第一帧不判定。
 - 已有事件：`animation-start`、`animation-end`、`scroll`；进入目录：`dir-loaded-us`（自导航请求起，读取结果回到界面线程）、`dir-entries`（条目数）、`dir-ready-us`（新内容第一帧渲染完成，用 `perf::mark_next_frame` 在下一帧记录），基准模式额外有 `bench-iter`。
+- 首屏缩略图事件（Issue #5 定义，**产品尚未实现，由 #10 写入**）：`thumbs-first-screen-us`，值为自本次导航请求起，到“首屏内正常文件的缩略图全部已显示、且已渲染出这一帧”的微秒数，用 `perf::mark_next_frame("thumbs-first-screen-us", 导航起点)` 记录；失败、超时、仍在生成的慢文件不计入“正常文件”，但要有各自的最终状态。事件缺失时 `scripts/perf-thumbs.ps1` 输出“未测量”，不写 0。
+  - 条件记录：窗口 1100x720（`harness` 同款）、首屏项数（网格 7 列 × 4 个完整行 = 28，含半露出一行 35；布局变动后重新计数）、缓存条件。缩略图缓存目录由环境变量 `SFM_THUMB_CACHE_DIR` 指定（#10 实现）：冷 = 清空该目录；同进程热 = 同一进程内再次进入（`--bench-enter` 的第 2 次起）；重启后 = 保留目录、新开进程。`perf-thumbs.ps1` 已按此切分 `--bench-enter` 日志里的各次进入。
+  - 调度原型的“无头”首屏时间不含 Slint 上传与渲染，不能与该事件混用。
 - 隐私：`perf::event` 只接受静态字符串和一个整数，写不进路径、文件名、图像内容。新增事件保持这一约束。
 - 复现：`--open=目录` 指定起始目录，`--smoke-ms=N` 运行 N 毫秒后自动退出；`--bench-enter=目录 [--bench-runs=10]` 每 400ms 在目录与其上级之间切换，每次进入前记录 `bench-iter`（隐含 `--debug-perf`），`scripts/perf-browse.ps1` 据此汇总。
 - Issue #22 的示例界面（切换面板、示例列表、`--demo-autoplay`）已在 Issue #4 随真实浏览界面一起移除；harness 的场景、基线、交互脚本全部改为真实界面。
