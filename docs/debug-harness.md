@@ -48,12 +48,14 @@
 2. 可交互元素**同时**设置 `accessible-role` 与 `accessible-label`（用户可读的中文名，如“切换示例面板”）。优先用 `accessible-label` 查找：它也是无障碍名称，一处定义两处使用。
 3. 元素级状态用 Slint 的 `accessible-*` 属性表达（`accessible-checked`、`accessible-value`、`accessible-enabled` 等），元素树会导出。
 4. 元素树无法通用读取的状态（如键盘焦点）：在窗口根组件上加 `out property`（如 `key-focused`），由 `dump::extras` 导出。新界面要导出的状态在那里追加。
-5. 元素树按深度优先先序平铺，没有层级字段；`visible` 恒为 true（不可见元素遍历不到）；`id` 为空表示未命名元素。
+5. 元素树导出（`tree`）的 JSON 顶层为 `meta`（窗口尺寸、缩放、渲染器、夹具）、`extras`（根组件导出的状态属性，如 `click_count`、`panel_open`、`key_focused`、`list_scroll_y`）、`elements`（元素数组）。每个元素的字段：`index`、`id`（带组件名前缀，如 `MainWindow::demo-toggle-button`）、`type`、`role`、`label`、`value`、`enabled`、`checked`、`selected`、`expanded`、`x`、`y`、`w`、`h`（窗口内逻辑像素）、`opacity`、`visible`；取不到的值为 `null`。
+6. 元素树按深度优先先序平铺，没有层级字段；`visible` 恒为 true（不可见元素遍历不到）；`id` 为空表示未命名元素。
 
 输入模拟：`ElementHandle::mock_single_click`（点击，含 50ms 模拟时间）、`Ctx::key`（按键）、`ElementHandle::scroll`（滚动）。示例脚本见 `src/bin/harness/scenarios.rs` 的 `interaction`。
 
 ## 截图、基线与环境指纹
 
+- 差异图文件名：`<截图文件名去掉 .png>.diff.png`，位于 `artifacts/snapshots/diff/`；`compare` 发现差异时会在输出行末打印路径，详细数值在同目录 `compare-report.json`。
 - 文件名：`<场景>_<逻辑宽>x<逻辑高>_<缩放百分比>.png`，如 `panel-open_960x600_150.png`；同名 `.json` 记录物理尺寸、缩放与环境指纹。
 - **稳定性自检**：每个场景用两个全新窗口渲染两次，逐字节比较；不一致标记 `stable: false`，命令退出码 3，**不得**把这种截图当回归信号。
 - **环境指纹**：渲染器、Slint 版本、操作系统、系统字体清单哈希。基线与当前指纹不同且像素有差异时，状态为 `env-mismatch`（退出码 2，“无法判断”），而不是 `regression`。换机器或装了新字体后，先在新环境 `bless`。
@@ -84,6 +86,8 @@
 - `curve.csv` / `curve.json`：被跟踪元素（`scenarios.rs` 的 `TRACKED`）的 x、y、w、h、opacity 随时间的数值；`mock_time_ms` 为模拟时钟绝对值，便于追溯。`curve.json` 的 `summary` 给出起点、终点、极值、**过冲**与**稳定时间**。
 - `contact-sheet.png`：联系表，每格上方左为帧号、右为毫秒。
 - `anim.gif`：半尺寸动图，供 frame-inspect 和 3 级审阅使用。
+
+默认值：`--interval 16`（毫秒）、`--duration 600`（毫秒）。动画时长超过 600ms 时要加大 `--duration`，否则稳定时间会被截断。输出目录默认 `artifacts/frames/<场景>_<尺寸>_<缩放>/`，**重复采集会覆盖**；要对比改动前后，先用 `--out` 指到不同目录。目前 `TRACKED` 只跟踪 `demo-panel` 一个元素。
 
 核对方法：看 `summary`（时长≈稳定时间、过冲量、终态），再看联系表确认视觉。同一动画重复采集产物逐字节一致（`verify-harness.ps1` 会检查）。改了 `animate` 的 `duration` 或 `easing`，`summary.settle_ms`、过冲和曲线都会变。
 

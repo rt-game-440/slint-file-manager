@@ -262,7 +262,11 @@ fn cmd_compare(args: &Args) -> Res<i32> {
         ));
         let _ = std::fs::remove_file(&diff_png);
         let o = compare::compare(&base.join(fname), png, &diff_png, &opts)?;
-        println!("{:<18} {}", o.status, fname.to_string_lossy());
+        let diff_note = o.detail["diff_image"]
+            .as_str()
+            .map(|d| format!("  差异图：{d}"))
+            .unwrap_or_default();
+        println!("{:<18} {}{diff_note}", o.status, fname.to_string_lossy());
         statuses.push(o.status);
         report.push(json!({"scenario": name, "file": fname.to_string_lossy(), "status": o.status, "detail": o.detail}));
     }
