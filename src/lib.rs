@@ -22,7 +22,7 @@ pub mod recycle;
 pub mod search;
 pub mod shell;
 pub mod shell_menu;
-pub mod thumbs;
 pub mod shellnew;
 pub mod shellop;
+pub mod thumbs;
 pub mod xfer;

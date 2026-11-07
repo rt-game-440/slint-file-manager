@@ -79,6 +79,9 @@ component GridCell inherits Rectangle {
     callback context(int);
     // 指针阶段（窗口逻辑坐标），Rust 用它识别拖放
     callback drag(int, DragPhase, length, length);
+    // 按下时指针相对本格的位置，用来区分“指针移动”与“内容在指针下滚动”
+    property <length> down-x;
+    property <length> down-y;
 
     border-radius: Theme.radius;
     background: root.item.drop-target ? Theme.accent-soft : root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
@@ -98,8 +101,11 @@ component GridCell inherits Rectangle {
     ta := TouchArea {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
-                root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+                // 先记录按下位置再处理选择：选择会让光标项滚入视野，之后位置会随内容移动
+                root.down-x = self.mouse-x;
+                root.down-y = self.mouse-y;
                 root.drag(root.index, DragPhase.down, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
             }
             if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
                 root.drag(root.index, DragPhase.up, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
@@ -112,7 +118,8 @@ component GridCell inherits Rectangle {
             }
         }
         moved => {
-            if (self.pressed) {
+            // 只有指针相对本格真的移动才算：内容在静止的指针下滚动（点击半露出的项会滚入视野）也会触发 moved，不能当作拖动
+            if (self.pressed && (self.mouse-x != root.down-x || self.mouse-y != root.down-y)) {
                 root.drag(root.index, DragPhase.move, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
             }
         }
@@ -374,6 +381,9 @@ component ListRow inherits Rectangle {
     callback context(int);
     // 指针阶段（窗口逻辑坐标），Rust 用它识别拖放
     callback drag(int, DragPhase, length, length);
+    // 按下时指针相对本格的位置，用来区分“指针移动”与“内容在指针下滚动”
+    property <length> down-x;
+    property <length> down-y;
 
     border-radius: 6px;
     background: root.item.drop-target ? Theme.accent-soft : root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
@@ -391,8 +401,11 @@ component ListRow inherits Rectangle {
     ta := TouchArea {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
-                root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+                // 先记录按下位置再处理选择：选择会让光标项滚入视野，之后位置会随内容移动
+                root.down-x = self.mouse-x;
+                root.down-y = self.mouse-y;
                 root.drag(root.index, DragPhase.down, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
             }
             if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
                 root.drag(root.index, DragPhase.up, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
@@ -405,7 +418,8 @@ component ListRow inherits Rectangle {
             }
         }
         moved => {
-            if (self.pressed) {
+            // 只有指针相对本格真的移动才算：内容在静止的指针下滚动（点击半露出的项会滚入视野）也会触发 moved，不能当作拖动
+            if (self.pressed && (self.mouse-x != root.down-x || self.mouse-y != root.down-y)) {
                 root.drag(root.index, DragPhase.move, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
             }
         }
