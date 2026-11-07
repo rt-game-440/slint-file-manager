@@ -79,6 +79,9 @@ pub struct Options {
     /// 单选文件夹时由调用方接管“打开”（在本应用内进入该文件夹，而不是让外壳另开资源管理器窗口）：
     /// 选中 verb 为 `open` 时不调用外壳，返回 [`Outcome::Intercepted`]。
     pub intercept_open: bool,
+    /// 由调用方接管“删除”（verb 为 `delete`，Issue #41）：不让外壳直接删除，转给应用内的删除确认流程。
+    /// 外壳在 Shift+右键时给出的仍是同一个 `delete` verb，无法可靠区分“永久删除”，一律按普通删除处理。
+    pub intercept_delete: bool,
     /// 自动化测试：自动导航与取消（见 [`drive`]）。
     #[cfg(feature = "harness")]
     pub drive: Option<drive::Plan>,
@@ -120,7 +123,7 @@ pub enum Outcome {
         verb: String,
         error: String,
     },
-    /// 调用方要求接管该命令（见 [`Options::intercept_open`]），未调用外壳。
+    /// 调用方要求接管该命令（见 [`Options::intercept_open`]、[`Options::intercept_delete`]），未调用外壳。
     Intercepted { verb: String },
     /// 本应用自己的命令。
     Custom(Custom),
@@ -376,7 +379,7 @@ pub fn show(req: &Request) -> Result<Report, MenuError> {
     } else {
         let label = selected_label(menu.0, last_select, cmd);
         let verb = command_verb(&built.cm, cmd - ID_FIRST);
-        if req.options.intercept_open && verb.eq_ignore_ascii_case("open") {
+        if should_intercept(&req.options, &verb) {
             Outcome::Intercepted { verb }
         } else {
             match invoke(&built.cm, owner, cmd - ID_FIRST, &req.target, pos) {
@@ -571,6 +574,12 @@ fn selected_label(root: HMENU, last: (isize, u32, u32), cmd: u32) -> String {
         return t;
     }
     item_text(root, cmd, false).unwrap_or_default()
+}
+
+/// 该 verb 是否由调用方接管（不调用外壳）。verb 比较不区分大小写。
+pub fn should_intercept(options: &Options, verb: &str) -> bool {
+    (options.intercept_open && verb.eq_ignore_ascii_case("open"))
+        || (options.intercept_delete && verb.eq_ignore_ascii_case("delete"))
 }
 
 fn command_verb(cm: &IContextMenu, offset: u32) -> String {
@@ -784,6 +793,38 @@ mod tests {
         assert_eq!(clean_label("打开(&O)\tEnter"), "打开(O)");
         assert_eq!(clean_label("&NanaZip"), "NanaZip");
         assert_eq!(clean_label(""), "");
+    }
+
+    #[test]
+    fn intercept_verbs() {
+        let none = Options::default();
+        assert!(!should_intercept(&none, "open"));
+        assert!(!should_intercept(&none, "delete"));
+        let open = Options {
+            intercept_open: true,
+            ..Default::default()
+        };
+        assert!(should_intercept(&open, "OPEN"));
+        assert!(!should_intercept(&open, "delete"));
+        let del = Options {
+            intercept_delete: true,
+            ..Default::default()
+        };
+        assert!(should_intercept(&del, "delete"));
+        assert!(should_intercept(&del, "Delete"));
+        assert!(!should_intercept(&del, "open"));
+        // 其他 verb 一律交给外壳
+        for v in [
+            "cut",
+            "copy",
+            "rename",
+            "properties",
+            "paste",
+            "",
+            "deletefoo",
+        ] {
+            assert!(!should_intercept(&del, v), "{v}");
+        }
     }
 
     #[test]
