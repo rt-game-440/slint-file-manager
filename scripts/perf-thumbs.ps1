@@ -113,7 +113,7 @@ $env_ = [ordered]@{
     dataset_label   = $label
     files           = $nFiles
     thumb_size_px   = 256
-    window          = '1100x720（产品初始窗口；网格 7 列，完整可见 4 行 = 28 项，含半露出一行 35 项，见 0005 研究文档）'
+    window          = '1100x720（#6 之前的单面板布局：网格 7 列，完整可见 4 行 = 28 项，含半露出一行 35 项；双栏下需重新计数并用 -FirstScreen 传入，见 0005 研究文档）'
     first_screen    = $FirstScreen
     workers         = $Workers
     runs            = $Runs
