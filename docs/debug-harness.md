@@ -12,6 +12,8 @@
 | 磁盘／收藏／目录变化同步（侧栏、收藏持久化、外部变化、后台标签、轮询模式、真实 `subst` 虚拟盘插拔；61 步） | `powershell -File scripts/harness.ps1 live [--review-dir 目录]` | `artifacts/state/live.json`；`--review-dir` 额外输出 3 级审阅截图 |
 | 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`） |
 | 右键菜单真实窗口自测（真实 Win32 输入、系统菜单、NanaZip 命令产物、GDI 量化；需交互式桌面，约 90 秒） | `powershell -File scripts/verify-menu.ps1`（已含在 `scripts/verify-harness.ps1`） | `artifacts/verify/menu/selftest.json`、`menu-trees.txt`、截图；详见 [shell-context-menu.md](shell-context-menu.md) |
+| 搜索脚本（目录／全盘搜索、增量与取消、旧结果不混入、选择／打开／定位、过期结果、模拟增强后端的就绪与五种故障回退；45 步，搜索任务手动驱动，结果确定） | `powershell -File scripts/harness.ps1 search` | `artifacts/state/search.json` |
+| 基本搜索的真实规模与耗时（只输出统计，不记录路径与文件名；用 release 构建才有意义） | `cargo build --release --features harness --bin harness`，再 `target\release\harness.exe search-bench --dir 目录 --all true --repeat 3` | `artifacts/state/search-bench.json` |
 | 截图（100% 与 150%） | `powershell -File scripts/harness.ps1 snap` | `artifacts/snapshots/current/*.png` + `.json` |
 | 截图并与基线比较，输出差异图 | `powershell -File scripts/harness.ps1 compare` | `artifacts/snapshots/diff/*.diff.png`、`compare-report.json` |
 | 更新基线（人工确认后提交） | `powershell -File scripts/harness.ps1 bless` | `tests/baselines/` |
@@ -64,6 +66,7 @@
 - **打开文件**用 `Opener::Record`：只把路径记到 `Ctx::opened`，不启动任何程序。
 - **删除与回收站**用 `Env.backend`：harness 每个窗口注入一个全新的 `StashBackend`（`%TEMP%\sfm-harness\stash\<序号>`，每次 harness 启动清空），“回收站”就是该目录，行为与规格一致（不覆盖、不建目录、失败原样保留），可用 `Ctx.stash.inject(路径, Inject::…)` 注入权限不足、不支持回收站、还原失败，`set_clock` 固定“删除时间”让截图确定。**harness 从不接触系统真实回收站**；删除用的数据在 `%TEMP%\sfm-harness\scratch\{delete,shots}`。对话框与删除状态通过 `extras.dialog`（`visible`／`title`／`danger`／`confirm`／`cancel`）、`extras.bin_items`、`extras.status_message_ok` 导出。
 - **样例目录**（`src/bin/harness/fixture.rs`）：每次 harness 启动（`review` 除外）在 `%TEMP%\sfm-harness\样例目录` 重新生成，不读取用户真实目录。内容：文件夹“照片”（12 张 WebP 占位）、“空文件夹”、“无权限”（用 `icacls` 拒绝 Everyone 列目录，只作用于本夹具，下次生成前 `/reset`）、四层长名称子目录；根目录 12 张图片、中文／自然排序名（报告2、报告10）、长中文名 PDF、长英文名 TXT、各类扩展名、一个隐藏文件（不应显示）。名称、大小、修改时间全部固定，内容是占位字节。
+- **并行运行与自定义样例目录**：多个工作树（或多个代理）同时跑 harness 时，默认共用 `%TEMP%\sfm-harness`，彼此重建样例目录会导致偶发失败（如“找不到 ListItem”）。设置环境变量 `SFM_HARNESS_DIR` 指向一个独立目录即可隔离（PowerShell：`$env:SFM_HARNESS_DIR = "$env:TEMP\sfm-harness-我的任务"`；样例目录、会话目录与草稿目录都在它之下，**每次运行都会重建，不要指向有用数据的位置**）。注意样例目录的绝对路径会写入截图指纹和地址栏，换了目录后与基线比较会得到 `env-mismatch`（退出码 2）；要生成或比较基线时请用默认目录并保证没有别的 harness 在同时运行，其余脚本（`run`、`live`、`search`）用独立目录即可。
 - 路径含用户名、日期按本地时区显示，所以样例目录绝对路径与时区写入截图指纹；换机器得到 `env-mismatch`，属正常。
 - 两个 harness 进程不要同时运行（会同时重建样例目录）。
 - 模拟时钟在每个窗口创建前对齐到 3600ms 的整数倍，保证 `animation-tick()` 驱动的循环动画（加载进度条）在不同窗口中相位一致。
@@ -153,6 +156,8 @@
 - 复现：`--open=目录` 指定起始目录，`--smoke-ms=N` 运行 N 毫秒后自动退出；`--bench-enter=目录 [--bench-runs=10]` 每 400ms 在目录与其上级之间切换，每次进入前记录 `bench-iter`（隐含 `--debug-perf`），`scripts/perf-browse.ps1` 据此汇总。
 - Issue #22 的示例界面（切换面板、示例列表、`--demo-autoplay`）已在 Issue #4 随真实浏览界面一起移除；harness 的场景、基线、交互脚本全部改为真实界面。
 
+- **Issue #11（搜索）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏的搜索框：由禁用的占位（“搜索（即将提供）”，220px）变为可输入的搜索框（占位文字“搜索名称、扩展名或路径”，240px，空闲时浅灰底、聚焦或搜索中为白底蓝描边），搜索框因此比此前宽 20px。内容区、侧栏、标签带像素未变：用旧基线逐像素比较，54 个原有基线的差异像素全部落在搜索框区域内（文字缩放 150% 的场景搜索框随文字缩放变宽，差异同样只在该框内）。同时新增 11 个搜索场景基线（见“新增场景”）。
+
 ## 新增场景
 
 - 静态场景：在 `src/bin/harness/scenarios.rs` 的 `STATIC` 追加 `Scenario`（可设文字缩放 `text_scale`、是否完成首次读取 `load`；`setup` 里用 `Ctx` 的点击、按键、`pump`、推进时间把界面带到目标状态，并写好“内容”“预期效果”供审阅清单使用），然后 `bless`。需要新的文件形态时改 `fixture.rs`，并同步 `root_visible_count`。
@@ -160,6 +165,7 @@
 - 双栏相关静态场景（Issue #6，基线 100%／150%）：`dual-default`（等宽双栏，左面板活动）、`dual-tabs`（两侧各多个标签，右面板活动）、`dual-unavailable-tab`（右面板含位置不可用标签）、`single-right`（单栏显示右面板）、`dual-text-scale-150`（双栏 + 文字缩放 150%，右面板活动）。双栏场景在 `Scenario` 里用 `split: true`；原有场景保持 `split: false`（单栏外观）。
 - 活动面板的截图审阅：`review` 的 REVIEW.md 已包含上述场景及“预期效果”；对比 `dual-default`（左活动）与 `dual-tabs`／`dual-text-scale-150`（右活动）即可看到顶边蓝线与标签底色的切换。
 - 删除与回收站场景（Issue #8，基线 100%／150%，后端为临时目录“回收站”）：`delete-confirm`（多选后 Delete 的移到回收站确认）、`delete-confirm-permanent`（Shift+Delete 的红色危险确认）、`recycle-bin`（三个不同删除时间的项目，列为名称／删除日期／原位置／大小，侧栏选中，提示条与“还原所选项目”）、`recycle-bin-empty`、`delete-partial`（注入权限不足：部分成功说明）、`delete-unsupported`（不支持回收站：只给说明）、`restore-conflict`（还原遇同名冲突的部分成功）。
+- 搜索场景（Issue #11，基线 100%／150%，名称以 `search-` 开头，环境见 `src/bin/harness/search.rs` 的 `showcase_env`：手动模式、模拟增强后端、全盘根目录注入）：`search-scanning`（扫描中，只送达开始与第一批结果）、`search-results`（完成并选中第一项，增强未安装）、`search-empty`、`search-denied`（无权限文件夹被跳过）、`search-all-disks`（全盘，含一个不可访问的根）、`search-no-disks`（没有可搜索的磁盘）、`search-enhanced`（模拟增强就绪，含陈旧索引项被剔除）、`search-fallback-not-running`、`search-fallback-failed`（增强查询中途失败已回退）、`search-cancelled`、`search-results-text-scale-150`。搜索任务在手动模式下排队，`Controller::search_pump(n)` 执行并最多送达 n 个事件，因此能确定地停在“扫描中”。
 - 不要为尚不存在的界面预建抽象；界面出现后再在这些入口上扩展。
 
 ## 已知限制与排错

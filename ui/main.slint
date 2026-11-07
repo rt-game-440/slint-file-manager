@@ -261,6 +261,15 @@ export component MainWindow inherits Window {
     shortcuts := FocusScope {
         focus-on-click: false;
         key-pressed(e) => {
+            // 搜索结果面板显示时，浏览面板是隐藏的：面板相关的快捷键（删除、后退、新标签……）一律不响应，
+            // 避免作用到看不见的选择；只保留 Ctrl+F 回到搜索框。
+            if (root.search-view.active) {
+                if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && (e.text == "f" || e.text == "F")) {
+                    root.focus-search();
+                    return accept;
+                }
+                return reject;
+            }
             if (e.modifiers.alt && e.text == Key.LeftArrow) {
                 root.go-back(root.active-pane);
                 return accept;
@@ -504,7 +513,7 @@ export component MainWindow inherits Window {
                                 delete-button := IconButton {
                                     icon: "trash";
                                     label: "删除";
-                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle;
+                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle && !root.search-view.active;
                                     clicked => {
                                         root.delete-selected(root.active-pane, false);
                                     }
@@ -517,7 +526,7 @@ export component MainWindow inherits Window {
                                     icon: "trash-x";
                                     label: "永久删除";
                                     danger: true;
-                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle;
+                                    enabled: root.active-view.selected-count > 0 && !root.active-view.recycle && !root.search-view.active;
                                     clicked => {
                                         root.delete-selected(root.active-pane, true);
                                     }

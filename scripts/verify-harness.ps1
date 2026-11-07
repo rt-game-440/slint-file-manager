@@ -16,6 +16,7 @@ Step 'cargo clippy --features harness' { cargo clippy --locked --jobs 6 --featur
 Step '交互脚本' { & $h run }
 Step '磁盘／收藏／目录变化同步' { & $h live }
 Step '右键菜单真实窗口自测（需交互式桌面）' { & (Join-Path $PSScriptRoot 'verify-menu.ps1') }
+Step '搜索（目录／全盘、取消、过期结果、增强后端故障回退）' { & $h search }
 Step '截图对比基线' { & $h compare } @(0, 2)
 Step '动画采集（第 1 次）' { & $h frames --out artifacts/verify/a }
 Step '动画采集（第 2 次）' { & $h frames --out artifacts/verify/b }

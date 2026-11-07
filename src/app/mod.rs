@@ -136,10 +136,19 @@ impl Env {
 }
 
 enum Msg {
-    Loaded { tab: TabId, loaded: Loaded },
+    Loaded {
+        tab: TabId,
+        loaded: Loaded,
+    },
     OpDone(ops::OpDone),
-    OpenFailed { failed: usize, message: String },
-    Search { session: u64, event: crate::search::Event },
+    OpenFailed {
+        failed: usize,
+        message: String,
+    },
+    Search {
+        session: u64,
+        event: crate::search::Event,
+    },
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
