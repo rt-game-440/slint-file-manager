@@ -1627,6 +1627,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fresh_split: false,
             live: slint_file_manager::app::LiveEnv::inert(),
             backend: std::sync::Arc::new(slint_file_manager::fileops::SystemBackend),
+            search: slint_file_manager::app::SearchEnv::production(),
         },
     );
     win.window()
