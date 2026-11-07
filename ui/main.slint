@@ -8,9 +8,9 @@ import { IconButton, WindowButton, MenuRow } from "controls.slint";
 import { BrowserPane } from "browser-pane.slint";
 import { ModalDialog } from "dialog.slint";
 import { SearchBox, SearchPanel } from "search.slint";
-import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice } from "types.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus } from "types.slint";
 
-export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice }
+export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus }
 
 component SidebarRow inherits Rectangle {
     in property <SidebarEntry> entry;
@@ -158,6 +158,8 @@ export component MainWindow inherits Window {
     in property <string> dialog-body;
     in property <string> dialog-confirm-label;
     in property <string> dialog-cancel-label;
+    // 第三个选项（名称冲突时的“跳过”），为空则不显示
+    in property <string> dialog-secondary-label;
     in property <bool> dialog-danger: false;
     in property <int> dialog-token;
     // 搜索（Issue #11）：搜索框文字、结果面板状态与结果行
@@ -213,6 +215,28 @@ export component MainWindow inherits Window {
     callback restore-selected(int);
     callback dialog-accepted();
     callback dialog-cancelled();
+    callback dialog-secondary();
+    // ---- 新建、重命名、剪贴板、拖放（Issue #12） ----
+    // “新建”菜单里的文件模板名称（Rust 从系统“新建”菜单读取），第一项固定为文件夹，不在此列表
+    in property <[string]> new-templates;
+    callback new-folder(int);
+    callback new-file(int, int);
+    callback rename-selected(int);
+    // 0 复制、1 剪切、2 粘贴
+    callback clip-op(int, int);
+    callback item-drag(int, int, DragPhase, length, length);
+    callback drag-cancel();
+
+    // 窗口内一点命中的面板与条目（拖放用）：不在任何面板内容区时 pane = -1，在面板空白处 index = -1
+    public pure function drop-hit(x: length, y: length) -> DropHit {
+        if (left-pane.contains(x, y)) {
+            return { pane: 0, index: left-pane.hit(x, y) };
+        }
+        if (right-pane.contains(x, y)) {
+            return { pane: 1, index: right-pane.hit(x, y) };
+        }
+        return { pane: -1, index: -1 };
+    }
     callback set-sort(int, SortKey, bool);
     callback set-view(int, ViewMode);
     callback tab-clicked(int, int);
@@ -349,6 +373,31 @@ export component MainWindow inherits Window {
                 root.delete-selected(root.active-pane, e.modifiers.shift);
                 return accept;
             }
+            // ---- 新建、重命名、剪贴板 ----
+            if (e.text == Key.F2 && !e.modifiers.control && !e.modifiers.alt) {
+                root.rename-selected(root.active-pane);
+                return accept;
+            }
+            if (e.modifiers.control && e.modifiers.shift && !e.modifiers.alt && (e.text == "n" || e.text == "N")) {
+                root.new-folder(root.active-pane);
+                return accept;
+            }
+            if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && (e.text == "c" || e.text == "C")) {
+                root.clip-op(root.active-pane, 0);
+                return accept;
+            }
+            if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && (e.text == "x" || e.text == "X")) {
+                root.clip-op(root.active-pane, 1);
+                return accept;
+            }
+            if (e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && (e.text == "v" || e.text == "V")) {
+                root.clip-op(root.active-pane, 2);
+                return accept;
+            }
+            if (e.text == Key.Escape && DragBus.active) {
+                root.drag-cancel();
+                return accept;
+            }
             // ---- 面板与布局 ----
             if (e.text == Key.F6) {
                 root.switch-pane();
@@ -463,6 +512,17 @@ export component MainWindow inherits Window {
                             padding-right: 3 * 44px + 10px;
                             spacing: 4px;
                             alignment: start;
+
+                            VerticalLayout {
+                                alignment: center;
+                                new-button := IconButton {
+                                    icon: "plus";
+                                    label: "新建";
+                                    clicked => {
+                                        new-menu.show();
+                                    }
+                                }
+                            }
 
                             VerticalLayout {
                                 alignment: center;
@@ -694,6 +754,45 @@ export component MainWindow inherits Window {
                                 danger: true;
                                 clicked => {
                                     root.request-close();
+                                }
+                            }
+                        }
+
+                        // “新建”菜单：文件夹与 ShellNew 文件模板（Issue #12）
+                        new-menu := PopupWindow {
+                            x: new-button.absolute-position.x - toolbar.absolute-position.x;
+                            y: Theme.toolbar-h - 6px;
+                            width: 200px * Theme.text-scale;
+                            close-policy: close-on-click-outside;
+
+                            Rectangle {
+                                background: Theme.surface;
+                                border-radius: 10px;
+                                border-width: 1px;
+                                border-color: Theme.divider;
+                                drop-shadow-blur: 16px;
+                                drop-shadow-offset-y: 4px;
+                                drop-shadow-color: #00000022;
+
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 1px;
+
+                                    MenuRow {
+                                        text: "文件夹";
+                                        clicked => {
+                                            root.new-folder(root.active-pane);
+                                            new-menu.close();
+                                        }
+                                    }
+
+                                    for t[i] in root.new-templates: MenuRow {
+                                        text: t;
+                                        clicked => {
+                                            root.new-file(root.active-pane, i);
+                                            new-menu.close();
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -968,6 +1067,9 @@ export component MainWindow inherits Window {
                             thumbs-viewport(a0) => {
                                 root.thumbs-viewport(a0);
                             }
+                            item-drag(a0, a1, a2, a3, a4) => {
+                                root.item-drag(a0, a1, a2, a3, a4);
+                            }
                         }
 
                         if root.split: Rectangle {
@@ -1055,6 +1157,9 @@ export component MainWindow inherits Window {
                             }
                             thumbs-viewport(a0) => {
                                 root.thumbs-viewport(a0);
+                            }
+                            item-drag(a0, a1, a2, a3, a4) => {
+                                root.item-drag(a0, a1, a2, a3, a4);
                             }
                         }
 
@@ -1148,6 +1253,7 @@ export component MainWindow inherits Window {
         body: root.dialog-body;
         confirm-label: root.dialog-confirm-label;
         cancel-label: root.dialog-cancel-label;
+        secondary-label: root.dialog-secondary-label;
         danger: root.dialog-danger;
         focus-token: root.dialog-token;
         accepted => {
@@ -1155,6 +1261,37 @@ export component MainWindow inherits Window {
         }
         cancelled => {
             root.dialog-cancelled();
+        }
+        secondary => {
+            root.dialog-secondary();
+        }
+    }
+
+    // ---------- 拖放提示：跟随指针的小标签，文字就是放下后将发生的操作 ----------
+    if DragBus.active: drag-ghost := Rectangle {
+        x: min(DragBus.x + 14px, root.width - self.width - 6px);
+        y: min(DragBus.y + 16px, root.height - self.height - 6px);
+        width: ghost-text.preferred-width + 24px;
+        height: Theme.control-h + 8px;
+        background: Theme.surface;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: DragBus.hint-ok ? Theme.accent : Theme.danger;
+        drop-shadow-blur: 12px;
+        drop-shadow-offset-y: 3px;
+        drop-shadow-color: #00000033;
+        accessible-role: text;
+        accessible-label: "拖放提示";
+        accessible-value: DragBus.label + " " + DragBus.hint;
+
+        ghost-text := Text {
+            x: 12px;
+            width: parent.width - 24px;
+            text: DragBus.hint != "" ? DragBus.label + " → " + DragBus.hint : DragBus.label;
+            color: DragBus.hint-ok ? Theme.text : Theme.danger;
+            font-size: Theme.font;
+            vertical-alignment: center;
+            overflow: elide;
         }
     }
 }

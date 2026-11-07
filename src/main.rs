@@ -95,6 +95,27 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     window.show()?;
+    // 接管资源管理器拖进来的文件。系统窗口在事件循环开始后才真正创建、才有 HWND，所以在循环里
+    // 每 50ms 试一次（成功即停，最多 40 次）；失败时只是不能从资源管理器拖入，其他功能不受影响。
+    let attach_timer = std::rc::Rc::new(slint::Timer::default());
+    {
+        let (c, w, t) = (controller.clone(), window.as_weak(), attach_timer.clone());
+        let tries = std::cell::Cell::new(0u32);
+        attach_timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(50),
+            move || {
+                tries.set(tries.get() + 1);
+                let done = w.upgrade().is_some_and(|w| app::attach_drop(&c, &w));
+                if done {
+                    t.stop();
+                } else if tries.get() >= 40 {
+                    t.stop();
+                    eprintln!("未能登记拖放目标：不能从资源管理器拖入文件");
+                }
+            },
+        );
+    }
     controller.focus_active();
     window.run()?;
     // 正常退出时再保存一次（定时保存之外的最后变化）

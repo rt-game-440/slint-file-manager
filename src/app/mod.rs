@@ -30,6 +30,7 @@ pub use live::{DriveSource, LiveEnv};
 pub use search::{SearchEnv, SearchSnapshot};
 
 pub mod ops;
+pub mod transfer;
 use crate::browse::location::{self, Crumb as PathCrumb};
 use crate::browse::session::{LoadOutcome, SessionState, SessionStore};
 use crate::browse::workspace::{CloseError, MAX_TABS, Pane};
@@ -37,12 +38,14 @@ use crate::browse::{
     Activation, Job, ListErrorKind, LoadState, Loaded, Nav, SortKey as CoreSortKey, SortSpec, Tab,
     TabId, ViewMode as CoreView, Workspace, format,
 };
+use crate::clipboard::Clipboard;
 use crate::fileops::{Backend, SystemBackend};
+use crate::shellnew::Template;
 use crate::{
     ContentState, Crumb, MainWindow, NavKey, PaneView, SortKey, TabInfo, ViewMode, perf, shell,
     shell_menu,
 };
-use model::ItemsModel;
+use model::{ItemsModel, Marks};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, VecDeque};
@@ -53,6 +56,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use thumbs::Thumbs;
 pub use thumbs::{ThumbEnv, ThumbMode};
+pub use transfer::{OsDrag, XferEnv, attach_drop};
 
 /// 变化后保存会话的检查间隔。
 const SAVE_INTERVAL: Duration = Duration::from_millis(2000);
@@ -119,6 +123,8 @@ pub struct Env {
     pub search: SearchEnv,
     /// 缩略图生成方式、持久缓存目录与设置文件。
     pub thumbs: ThumbEnv,
+    /// 新建、剪贴板与拖放的外部环境（产品用系统剪贴板与系统拖放，harness 用内存剪贴板与记录）。
+    pub xfer: XferEnv,
 }
 
 impl Env {
@@ -140,6 +146,7 @@ impl Env {
             backend: Arc::new(SystemBackend),
             search: SearchEnv::production(),
             thumbs,
+            xfer: XferEnv::production(),
         }
     }
 }
@@ -224,6 +231,17 @@ pub struct Controller {
     live: live::Live,
     search: search::SearchUi,
     thumbs: Rc<Thumbs>,
+    // ---- 新建、重命名、剪贴板、拖放（见 transfer.rs） ----
+    clipboard: Rc<dyn Clipboard>,
+    templates: Vec<Template>,
+    os_drag: OsDrag,
+    /// 叠加在条目上的标记：剪切、正在重命名、拖放目标
+    marks: Rc<RefCell<Marks>>,
+    state: RefCell<transfer::State>,
+    /// 测试用：固定拖放时的修饰键
+    keys_override: Cell<Option<u32>>,
+    /// 主窗口句柄（窗口显示后由 [`attach_drop`] 设置）
+    hwnd: Cell<isize>,
 }
 
 impl Drop for Controller {
@@ -269,8 +287,14 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         env.thumbs,
         std::sync::Arc::new(move |d| post(id, Msg::Thumb(d))),
     ));
+    let marks = Rc::new(RefCell::new(Marks::default()));
     let ui = [0, 1].map(|p| {
-        let items = Rc::new(ItemsModel::new(ws.clone(), thumbs.clone(), p));
+        let items = Rc::new(ItemsModel::new(
+            ws.clone(),
+            thumbs.clone(),
+            p,
+            marks.clone(),
+        ));
         let crumbs = Rc::new(VecModel::<Crumb>::default());
         let tabs = Rc::new(VecModel::<TabInfo>::default());
         PaneUi {
@@ -290,6 +314,13 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
     let search = search::SearchUi::new(env.search, id);
     window.set_search_items(search.model());
     window.set_thumb_cache_capacity_mb(thumbs.capacity_mb() as i32);
+    window.set_new_templates(ModelRc::new(VecModel::from(
+        env.xfer
+            .templates
+            .iter()
+            .map(|t| SharedString::from(t.label.as_str()))
+            .collect::<Vec<_>>(),
+    )));
     let c = Rc::new(Controller {
         id,
         window: window.as_weak(),
@@ -316,6 +347,13 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         live,
         search,
         thumbs,
+        clipboard: env.xfer.clipboard,
+        templates: env.xfer.templates,
+        os_drag: env.xfer.os_drag,
+        marks,
+        state: RefCell::default(),
+        keys_override: Cell::new(None),
+        hwnd: Cell::new(0),
     });
     REGISTRY.with(|r| r.borrow_mut().insert(c.id, Rc::downgrade(&c)));
     connect(window, &c);
@@ -376,6 +414,13 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_restore_selected, c => |p| c.restore_selected(pane(p)));
     on!(on_dialog_accepted, c => || c.accept_dialog());
     on!(on_dialog_cancelled, c => || c.cancel_dialog());
+    on!(on_dialog_secondary, c => || c.secondary_dialog());
+    on!(on_new_folder, c => |p| c.new_folder(pane(p)));
+    on!(on_new_file, c => |p, i| c.new_file(pane(p), i));
+    on!(on_rename_selected, c => |p| c.rename_selected(pane(p)));
+    on!(on_clip_op, c => |p, op| c.clip_op(pane(p), op));
+    on!(on_item_drag, c => |p, i, phase, x, y| c.item_drag(p, i, phase, x, y));
+    on!(on_drag_cancel, c => || c.drag_cancel());
     on!(on_set_sort, c => |p, key, asc| c.set_sort(pane(p), key, asc));
     on!(on_set_view, c => |p, v| c.set_view(pane(p), v));
     on!(on_tab_clicked, c => |p, i| c.select_tab(pane(p), i));
@@ -403,6 +448,13 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_thumb_cache_menu_opened, c => || c.sync_thumb_cache_usage());
     on!(on_thumb_cache_set_capacity, c => |mb| c.set_thumb_cache_capacity(mb));
     on!(on_thumb_cache_clear, c => || c.clear_thumb_cache());
+    {
+        let bus = w.global::<crate::RenameBus>();
+        let c1 = c.clone();
+        bus.on_commit(move |text, blur| c1.rename_commit(&text, blur));
+        let c2 = c.clone();
+        bus.on_cancel(move || c2.rename_cancel());
+    }
     let weak = w.as_weak();
     w.on_request_close(move || {
         if let Some(w) = weak.upgrade() {
@@ -661,6 +713,7 @@ impl Controller {
     // ---------- 导航 ----------
 
     fn nav_op(&self, p: usize, f: impl FnOnce(&mut Tab) -> Option<crate::browse::LoadRequest>) {
+        self.commit_rename_quietly();
         self.activate_pane(p);
         let job = {
             let mut ws = self.ws.borrow_mut();
@@ -841,6 +894,7 @@ impl Controller {
             self.ui[p].items.reset();
             self.sync_pane(p);
             self.sync_global();
+            self.after_load(p);
             if let Some(t0) = self.nav_started.get() {
                 if perf::enabled() {
                     perf::event("dir-loaded-us", Some(t0.elapsed().as_micros() as i64));
@@ -861,7 +915,19 @@ impl Controller {
     // ---------- 选择 ----------
 
     fn pointer(&self, p: usize, i: i32, ctrl: bool, shift: bool) {
-        if let Some(i) = idx(i) {
+        let Some(i) = idx(i) else { return };
+        // 多选中按下已选项：先保持选择（可能要拖动整组），松开时没有拖动才收拢为单选（与资源管理器一致）
+        let defer = !ctrl && !shift && {
+            let ws = self.ws.borrow();
+            let t = ws.active_tab(p);
+            t.is_selected(i) && t.selected_count() > 1
+        };
+        if defer {
+            self.commit_rename_quietly();
+            self.activate_pane(p);
+            self.defer_collapse(p, i);
+        } else {
+            self.clear_collapse();
             self.mutate(p, |t| t.click(i, ctrl, shift));
         }
     }
@@ -896,6 +962,7 @@ impl Controller {
 
     /// 修改选择并只通知变化的行。
     fn mutate(&self, p: usize, f: impl FnOnce(&mut Tab)) {
+        self.commit_rename_quietly();
         self.activate_pane(p);
         let changed = {
             let mut ws = self.ws.borrow_mut();
@@ -1390,6 +1457,8 @@ impl Controller {
 
     /// 与具体面板无关的状态：活动面板、单栏／双栏、侧栏高亮、状态栏（活动面板的统计）。
     fn sync_global(&self) {
+        // 剪贴板被别处改写后，“剪切”的淡化标记随之失效
+        self.check_cut();
         let Some(w) = self.window.upgrade() else {
             return;
         };

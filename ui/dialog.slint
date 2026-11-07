@@ -44,11 +44,14 @@ export component ModalDialog inherits Rectangle {
     in property <string> confirm-label;
     // 为空时不显示取消按钮（仅提示）
     in property <string> cancel-label;
+    // 为空时不显示第二个选项按钮（名称冲突：保留两者 / 跳过 / 取消）
+    in property <string> secondary-label;
     in property <bool> danger;
     // 每次打开（含从一个对话框直接换成另一个、实例被复用时）加一，让键盘焦点回到对话框
     in property <int> focus-token;
     callback accepted();
     callback cancelled();
+    callback secondary();
 
     changed focus-token => {
         scope.focus();
@@ -130,6 +133,13 @@ export component ModalDialog inherits Rectangle {
                         text: root.cancel-label;
                         clicked => {
                             root.cancelled();
+                        }
+                    }
+
+                    if root.secondary-label != "": DialogButton {
+                        text: root.secondary-label;
+                        clicked => {
+                            root.secondary();
                         }
                     }
 

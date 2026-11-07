@@ -3,7 +3,60 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
-import { FileItem, SortKey, ThumbState } from "types.slint";
+import { FileItem, SortKey, ThumbState, DragPhase, RenameBus } from "types.slint";
+
+// 重命名输入框：Enter 确定、Esc 取消、失去焦点确定（与资源管理器一致）。
+// 文本与选中范围通过 RenameBus 与 Rust 交换；原因非空时为红色边框。
+component NameEditor inherits Rectangle {
+    in property <TextHorizontalAlignment> align: left;
+    property <bool> had-focus: false;
+    height: Theme.font * 1.9;
+    background: Theme.surface;
+    border-radius: 4px;
+    border-width: 1.5px;
+    border-color: RenameBus.error != "" ? Theme.danger : Theme.accent;
+
+    FocusScope {
+        key-pressed(e) => {
+            if (e.text == Key.Escape) {
+                RenameBus.cancel();
+                return accept;
+            }
+            reject
+        }
+
+        name-input := TextInput {
+            x: 4px;
+            width: parent.width - 8px;
+            text <=> RenameBus.text;
+            color: Theme.text;
+            font-size: Theme.font;
+            vertical-alignment: center;
+            horizontal-alignment: root.align;
+            single-line: true;
+            selection-background-color: Theme.accent-border;
+            selection-foreground-color: Theme.text;
+            accessible-role: text-input;
+            accessible-label: "重命名";
+            init => {
+                self.focus();
+                self.set-selection-offsets(0, RenameBus.select-end);
+            }
+            accepted => {
+                RenameBus.commit(self.text, false);
+            }
+            // 只有“先得到过焦点、后来失去”才算失去焦点提交（初始化时的 false 不算）
+            changed has-focus => {
+                if (self.has-focus) {
+                    root.had-focus = true;
+                } else if (root.had-focus) {
+                    root.had-focus = false;
+                    RenameBus.commit(self.text, true);
+                }
+            }
+        }
+    }
+}
 
 // 网格中缩略图格位的高度（不含文件名）。A2：图片本身是主体，格位比类型图标大；图标仍按 56px 显示。
 export global GridMetrics {
@@ -18,15 +71,22 @@ component GridCell inherits Rectangle {
     in property <int> index;
     in property <bool> is-cursor;
     in property <bool> pane-focused;
+    // 所在视图是否显示：网格与列表同时实例化，只有显示着的那个才放重命名输入框（隐藏的输入框会抢走焦点）
+    in property <bool> shown: true;
     callback pointer(int, bool, bool);
     callback activate(int);
     // 右键松开：请求这一项的右键菜单
     callback context(int);
+    // 指针阶段（窗口逻辑坐标），Rust 用它识别拖放
+    callback drag(int, DragPhase, length, length);
+    // 按下时指针相对本格的位置，用来区分“指针移动”与“内容在指针下滚动”
+    property <length> down-x;
+    property <length> down-y;
 
     border-radius: Theme.radius;
-    background: root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
-    border-width: (root.is-cursor && root.pane-focused) || root.item.selected ? 1px : 0px;
-    border-color: root.is-cursor && root.pane-focused ? Theme.accent : Theme.accent-border;
+    background: root.item.drop-target ? Theme.accent-soft : root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
+    border-width: (root.is-cursor && root.pane-focused) || root.item.selected || root.item.drop-target ? 1px : 0px;
+    border-color: root.item.drop-target ? Theme.accent : root.is-cursor && root.pane-focused ? Theme.accent : Theme.accent-border;
     accessible-role: list-item;
     accessible-label: root.item.name;
     accessible-item-selectable: true;
@@ -41,10 +101,26 @@ component GridCell inherits Rectangle {
     ta := TouchArea {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                // 先记录按下位置再处理选择：选择会让光标项滚入视野，之后位置会随内容移动
+                root.down-x = self.mouse-x;
+                root.down-y = self.mouse-y;
+                root.drag(root.index, DragPhase.down, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                 root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+            }
+            if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                root.drag(root.index, DragPhase.up, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+            if (e.kind == PointerEventKind.cancel) {
+                root.drag(root.index, DragPhase.cancel, 0px, 0px);
             }
             if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
                 root.context(root.index);
+            }
+        }
+        moved => {
+            // 只有指针相对本格真的移动才算：内容在静止的指针下滚动（点击半露出的项会滚入视野）也会触发 moved，不能当作拖动
+            if (self.pressed && (self.mouse-x != root.down-x || self.mouse-y != root.down-y)) {
+                root.drag(root.index, DragPhase.move, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
             }
         }
         double-clicked => {
@@ -53,6 +129,7 @@ component GridCell inherits Rectangle {
     }
 
     VerticalLayout {
+        opacity: root.item.cut ? 0.45 : 1;
         padding: 8px;
         padding-top: 10px;
         spacing: 6px;
@@ -91,7 +168,7 @@ component GridCell inherits Rectangle {
             }
         }
 
-        Text {
+        if !(root.item.editing && root.shown): Text {
             text: root.item.name;
             color: Theme.text;
             font-size: Theme.font;
@@ -100,6 +177,13 @@ component GridCell inherits Rectangle {
             wrap: char-wrap;
             overflow: elide;
             height: Theme.font * 2.8;
+        }
+
+        if root.item.editing && root.shown: Rectangle {
+            height: Theme.font * 2.8;
+            NameEditor {
+                align: center;
+            }
         }
     }
 }
@@ -115,6 +199,7 @@ export component FileGrid inherits Rectangle {
     callback background-context();
     // 可见范围变化（滚动、尺寸、列数、条目数）：Rust 读取 visible-first／visible-end 并重排缩略图请求
     callback viewport-changed();
+    callback item-drag(int, DragPhase, length, length);
 
     property <length> pad: 12px;
     property <length> scrollbar-reserve: 12px;
@@ -158,6 +243,24 @@ export component FileGrid inherits Rectangle {
         root.ensure-visible(root.cursor-index);
     }
 
+    // 本控件内（相对坐标）某点落在哪一项上，没有则 -1。考虑了滚动位置。
+    public pure function hit(lx: length, ly: length) -> int {
+        if (ly - lv.content-y < root.pad || lx < root.pad) {
+            return -1;
+        }
+        // 索引取整，先转成 int 再比较
+        // 行、列
+        if (Math.floor((lx - root.pad) / root.cell-w) >= root.cols) {
+            return -1;
+        }
+        // 用整数运算得到条目序号
+        // (ly - content-y - pad) / cell-h 是行号
+        if (Math.floor((ly - lv.content-y - root.pad) / root.cell-h) * root.cols + Math.floor((lx - root.pad) / root.cell-w) >= root.items.length) {
+            return -1;
+        }
+        return Math.floor((ly - lv.content-y - root.pad) / root.cell-h) * root.cols + Math.floor((lx - root.pad) / root.cell-w);
+    }
+
     // 键盘（菜单键、Shift+F10）呼出右键菜单时的锚点：光标项中央，限制在可见区域内（相对本控件）
     public function anchor-x(i: int) -> length {
         return root.pad + mod(max(i, 0), root.cols) * root.cell-w + root.cell-w / 2;
@@ -193,6 +296,7 @@ export component FileGrid inherits Rectangle {
                 index: r * root.cols + c;
                 is-cursor: root.cursor-index == r * root.cols + c;
                 pane-focused: root.pane-focused;
+                shown: root.visible;
                 pointer(i, ctrl, shift) => {
                     root.item-pointer(i, ctrl, shift);
                 }
@@ -201,6 +305,9 @@ export component FileGrid inherits Rectangle {
                 }
                 context(i) => {
                     root.item-context(i);
+                }
+                drag(i, phase, x, y) => {
+                    root.item-drag(i, phase, x, y);
                 }
             }
         }
@@ -266,14 +373,21 @@ component ListRow inherits Rectangle {
     in property <length> date-w;
     in property <length> kind-w;
     in property <length> size-w;
+    // 所在视图是否显示（见 GridCell.shown）
+    in property <bool> shown: true;
     callback pointer(int, bool, bool);
     callback activate(int);
     // 右键松开：请求这一项的右键菜单
     callback context(int);
+    // 指针阶段（窗口逻辑坐标），Rust 用它识别拖放
+    callback drag(int, DragPhase, length, length);
+    // 按下时指针相对本格的位置，用来区分“指针移动”与“内容在指针下滚动”
+    property <length> down-x;
+    property <length> down-y;
 
     border-radius: 6px;
-    background: root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
-    border-width: root.is-cursor && root.pane-focused ? 1px : 0px;
+    background: root.item.drop-target ? Theme.accent-soft : root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
+    border-width: (root.is-cursor && root.pane-focused) || root.item.drop-target ? 1px : 0px;
     border-color: Theme.accent;
     accessible-role: list-item;
     accessible-label: root.item.name;
@@ -287,10 +401,26 @@ component ListRow inherits Rectangle {
     ta := TouchArea {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                // 先记录按下位置再处理选择：选择会让光标项滚入视野，之后位置会随内容移动
+                root.down-x = self.mouse-x;
+                root.down-y = self.mouse-y;
+                root.drag(root.index, DragPhase.down, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                 root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+            }
+            if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                root.drag(root.index, DragPhase.up, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+            if (e.kind == PointerEventKind.cancel) {
+                root.drag(root.index, DragPhase.cancel, 0px, 0px);
             }
             if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
                 root.context(root.index);
+            }
+        }
+        moved => {
+            // 只有指针相对本格真的移动才算：内容在静止的指针下滚动（点击半露出的项会滚入视野）也会触发 moved，不能当作拖动
+            if (self.pressed && (self.mouse-x != root.down-x || self.mouse-y != root.down-y)) {
+                root.drag(root.index, DragPhase.move, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
             }
         }
         double-clicked => {
@@ -299,6 +429,7 @@ component ListRow inherits Rectangle {
     }
 
     HorizontalLayout {
+        opacity: root.item.cut ? 0.45 : 1;
         padding-left: 8px;
         padding-right: 8px;
         spacing: 8px;
@@ -315,13 +446,19 @@ component ListRow inherits Rectangle {
             }
         }
 
-        Text {
+        if !(root.item.editing && root.shown): Text {
             horizontal-stretch: 1;
             text: root.item.name;
             color: Theme.text;
             font-size: Theme.font;
             vertical-alignment: center;
             overflow: elide;
+        }
+
+        if root.item.editing && root.shown: VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            NameEditor { }
         }
 
         Text {
@@ -367,6 +504,7 @@ export component FileList inherits Rectangle {
     callback background-pointer(bool);
     callback item-context(int);
     callback background-context();
+    callback item-drag(int, DragPhase, length, length);
     callback sort-clicked(SortKey);
 
     property <length> date-w: 140px * Theme.text-scale;
@@ -388,6 +526,17 @@ export component FileList inherits Rectangle {
 
     changed cursor-index => {
         root.ensure-visible(root.cursor-index);
+    }
+
+    // 本控件内（相对坐标）某点落在哪一行上，没有则 -1。考虑了滚动位置。
+    public pure function hit(lx: length, ly: length) -> int {
+        if (ly < root.header-h + 1px) {
+            return -1;
+        }
+        if (Math.floor((ly - root.header-h - 1px - lv.content-y) / Theme.row-h) >= root.items.length) {
+            return -1;
+        }
+        return Math.floor((ly - root.header-h - 1px - lv.content-y) / Theme.row-h);
     }
 
     // 键盘呼出右键菜单时的锚点：光标行，限制在可见区域内（相对本控件）
@@ -481,6 +630,7 @@ export component FileList inherits Rectangle {
                     index: i;
                     is-cursor: root.cursor-index == i;
                     pane-focused: root.pane-focused;
+                    shown: root.visible;
                     date-w: root.date-w;
                     kind-w: root.kind-w;
                     size-w: root.size-w;
@@ -492,6 +642,9 @@ export component FileList inherits Rectangle {
                     }
                     context(idx) => {
                         root.item-context(idx);
+                    }
+                    drag(idx, phase, x, y) => {
+                        root.item-drag(idx, phase, x, y);
                     }
                 }
             }

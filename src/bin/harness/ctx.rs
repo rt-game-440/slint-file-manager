@@ -1,4 +1,4 @@
-﻿//! 无头上下文：测试后端（模拟时钟 + 软件渲染器离屏）、窗口配置、元素查找与输入模拟、截图与 PNG 读写。
+//! 无头上下文：测试后端（模拟时钟 + 软件渲染器离屏）、窗口配置、元素查找与输入模拟、截图与 PNG 读写。
 
 use i_slint_backend_testing::{
     ElementHandle, ElementRoot, TestingBackend, TestingBackendOptions, get_mocked_time,
@@ -7,12 +7,14 @@ use i_slint_backend_testing::{
 use slint::ComponentHandle;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint_file_manager::app::{
-    self, Controller, DriveSource, Env, LiveEnv, Loader, MenuCall, MenuMode, Opener, ThumbEnv,
-    ThumbMode,
+    self, Controller, DriveSource, Env, LiveEnv, Loader, MenuCall, MenuMode, Opener, OsDrag,
+    ThumbEnv, ThumbMode, XferEnv,
 };
 use slint_file_manager::browse::places::Drive;
 use slint_file_manager::browse::session::SessionStore;
+use slint_file_manager::clipboard::MemClipboard;
 use slint_file_manager::fileops::StashBackend;
+use slint_file_manager::shellnew::Template;
 use slint_file_manager::{MainWindow, Theme};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -123,6 +125,10 @@ pub struct Ctx {
     pub menus: Rc<RefCell<Vec<MenuCall>>>,
     /// 为真时 [`Ctx::pump`] 不执行缩略图请求（截“加载中”状态）
     pub hold_thumbs: Cell<bool>,
+    /// 内存剪贴板：复制、剪切、粘贴不触碰系统剪贴板；`put_external` 模拟资源管理器放上去的文件
+    pub clip: Rc<MemClipboard>,
+    /// 被拖出窗口的路径记录（harness 不进入系统的模态拖放循环）
+    pub dragged_out: Rc<RefCell<Vec<Vec<PathBuf>>>>,
     t0: u64,
 }
 
@@ -191,6 +197,8 @@ impl Ctx {
             &crate::fixture::parent().join("stash").join(n.to_string()),
         )?);
         let menus = Rc::new(RefCell::new(Vec::new()));
+        let clip = Rc::new(MemClipboard::new());
+        let dragged_out = Rc::new(RefCell::new(Vec::new()));
         let ctl = app::wire(
             &win,
             Env {
@@ -216,6 +224,14 @@ impl Ctx {
                     }))),
                     cache_dir: o.thumb_cache,
                     settings_file: None,
+                },
+                xfer: XferEnv {
+                    clipboard: clip.clone(),
+                    templates: vec![
+                        Template::empty("文本文档", ".txt"),
+                        Template::empty("RTF 文档", ".rtf"),
+                    ],
+                    os_drag: OsDrag::Record(dragged_out.clone()),
                 },
             },
         );
@@ -243,6 +259,8 @@ impl Ctx {
             stash,
             menus,
             hold_thumbs: Cell::new(false),
+            clip,
+            dragged_out,
             t0: get_mocked_time(),
         };
         if o.load {

@@ -13,10 +13,16 @@ slint::include_modules!();
 
 pub mod app;
 pub mod browse;
+pub mod clipboard;
+pub mod dragdrop;
 pub mod fileops;
+pub mod naming;
 pub mod perf;
 pub mod recycle;
 pub mod search;
 pub mod shell;
 pub mod shell_menu;
+pub mod shellnew;
+pub mod shellop;
 pub mod thumbs;
+pub mod xfer;
