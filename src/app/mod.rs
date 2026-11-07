@@ -18,10 +18,13 @@
 //!   选择语义与资源管理器一致：在未选中的项上右键先单选它，在已选项上右键保持当前选择，空白处右键清空选择。
 //! - 开启 `--debug-perf` 时记录进入目录的耗时：`dir-loaded-us`（结果回到界面线程）、
 //!   `dir-ready-us`（新内容第一帧渲染完成），均自导航请求起算；会话恢复耗时为 `session-restore-us`。
+//! - 缩略图（[`thumbs`]）：网格可见范围变化、换目录、切换视图或面板时重新生成请求；结果按文件身份写回对应行。
+//!   harness 使用 [`ThumbMode::Manual`]，由 [`Controller::pump_thumbs`] 显式执行。
 
 pub mod live;
 pub mod model;
 pub mod search;
+pub mod thumbs;
 
 pub use live::{DriveSource, LiveEnv};
 pub use search::{SearchEnv, SearchSnapshot};
@@ -48,6 +51,8 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+use thumbs::Thumbs;
+pub use thumbs::{ThumbEnv, ThumbMode};
 
 /// 变化后保存会话的检查间隔。
 const SAVE_INTERVAL: Duration = Duration::from_millis(2000);
@@ -112,10 +117,13 @@ pub struct Env {
     pub backend: Arc<dyn Backend>,
     /// 搜索（见 [`search`]）。
     pub search: SearchEnv,
+    /// 缩略图生成方式、持久缓存目录与设置文件。
+    pub thumbs: ThumbEnv,
 }
 
 impl Env {
     pub fn production(start: Option<PathBuf>, store: Option<SessionStore>) -> Env {
+        let thumbs = ThumbEnv::production(store.as_ref().map(SessionStore::dir));
         Env {
             start,
             home: shell::home_dir(),
@@ -131,6 +139,7 @@ impl Env {
             store,
             backend: Arc::new(SystemBackend),
             search: SearchEnv::production(),
+            thumbs,
         }
     }
 }
@@ -149,6 +158,8 @@ enum Msg {
         session: u64,
         event: crate::search::Event,
     },
+    Thumb(crate::thumbs::sched::Done),
+    ThumbCacheCleared(u64),
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -212,6 +223,7 @@ pub struct Controller {
     saver: slint::Timer,
     live: live::Live,
     search: search::SearchUi,
+    thumbs: Rc<Thumbs>,
 }
 
 impl Drop for Controller {
@@ -252,8 +264,13 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         notice.push_str(&fav_notice);
     }
     let ws = Rc::new(RefCell::new(Workspace::from_session(&state)));
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let thumbs = Rc::new(Thumbs::new(
+        env.thumbs,
+        std::sync::Arc::new(move |d| post(id, Msg::Thumb(d))),
+    ));
     let ui = [0, 1].map(|p| {
-        let items = Rc::new(ItemsModel::new(ws.clone(), p));
+        let items = Rc::new(ItemsModel::new(ws.clone(), thumbs.clone(), p));
         let crumbs = Rc::new(VecModel::<Crumb>::default());
         let tabs = Rc::new(VecModel::<TabInfo>::default());
         PaneUi {
@@ -270,9 +287,9 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
     window.set_left_tabs(ModelRc::from(ui[0].tabs.clone()));
     window.set_right_tabs(ModelRc::from(ui[1].tabs.clone()));
     window.set_sidebar_places(live.model());
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let search = search::SearchUi::new(env.search, id);
     window.set_search_items(search.model());
+    window.set_thumb_cache_capacity_mb(thumbs.capacity_mb() as i32);
     let c = Rc::new(Controller {
         id,
         window: window.as_weak(),
@@ -298,6 +315,7 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         saver: slint::Timer::default(),
         live,
         search,
+        thumbs,
     });
     REGISTRY.with(|r| r.borrow_mut().insert(c.id, Rc::downgrade(&c)));
     connect(window, &c);
@@ -381,6 +399,10 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_search_open_selected, c => || c.search_open_selected());
     on!(on_search_locate, c => || c.search_locate());
     on!(on_search_nav, c => |d| c.search_nav(d));
+    on!(on_thumbs_viewport, c => |_p| c.refresh_thumbs());
+    on!(on_thumb_cache_menu_opened, c => || c.sync_thumb_cache_usage());
+    on!(on_thumb_cache_set_capacity, c => |mb| c.set_thumb_cache_capacity(mb));
+    on!(on_thumb_cache_clear, c => || c.clear_thumb_cache());
     let weak = w.as_weak();
     w.on_request_close(move || {
         if let Some(w) = weak.upgrade() {
@@ -782,6 +804,14 @@ impl Controller {
                 self.set_message(&format!("有 {failed} 个文件未能打开：{message}"))
             }
             Msg::Search { session, event } => self.search_event(session, event),
+            Msg::Thumb(d) => self.on_thumb(d),
+            Msg::ThumbCacheCleared(freed) => {
+                self.set_message(&format!(
+                    "已清空缩略图缓存（释放 {}）",
+                    thumbs::bytes_text(freed)
+                ));
+                self.sync_thumb_cache_usage();
+            }
         }
     }
 
@@ -811,13 +841,17 @@ impl Controller {
             self.ui[p].items.reset();
             self.sync_pane(p);
             self.sync_global();
-            if perf::enabled()
-                && let Some(t0) = self.nav_started.get()
-            {
-                perf::event("dir-loaded-us", Some(t0.elapsed().as_micros() as i64));
-                perf::event("dir-entries", Some(n as i64));
-                perf::mark_next_frame("dir-ready-us", t0);
+            if let Some(t0) = self.nav_started.get() {
+                if perf::enabled() {
+                    perf::event("dir-loaded-us", Some(t0.elapsed().as_micros() as i64));
+                    perf::event("dir-entries", Some(n as i64));
+                    perf::mark_next_frame("dir-ready-us", t0);
+                }
+                if p == self.ws.borrow().active_pane() {
+                    self.thumbs.arm(t0);
+                }
             }
+            self.refresh_thumbs();
         } else {
             // 后台标签（非当前标签）：只有标签带上的“不可用”标记可能变化
             self.sync_tabs(p);
@@ -1119,6 +1153,7 @@ impl Controller {
         self.ui[p].items.reset();
         self.sync_pane(p);
         self.sync_global();
+        self.refresh_thumbs();
     }
 
     fn set_view(&self, p: usize, v: ViewMode) {
@@ -1128,8 +1163,99 @@ impl Controller {
             ViewMode::List => CoreView::List,
         });
         self.mark_dirty();
+        // 行数据里的缩略图状态随视图变化（列表视图不显示缩略图）
+        self.ui[p].items.reset();
         self.sync_pane(p);
         self.sync_global();
+        self.refresh_thumbs();
+    }
+
+    // ---------- 缩略图 ----------
+
+    /// 按两个面板当前的网格可见范围重新生成缩略图请求。
+    pub fn refresh_thumbs(&self) {
+        if !self.thumbs.enabled() {
+            return;
+        }
+        let Some(w) = self.window.upgrade() else {
+            return;
+        };
+        // 先读界面属性（求值可能回调模型的 row_count），再借用工作区
+        let ranges = [
+            (w.get_left_visible_first(), w.get_left_visible_end()),
+            (w.get_right_visible_first(), w.get_right_visible_end()),
+        ];
+        self.thumbs.refresh(&self.ws.borrow(), ranges);
+    }
+
+    fn on_thumb(&self, d: crate::thumbs::sched::Done) {
+        for (p, row) in self.thumbs.apply(d) {
+            self.ui[p].items.row_changed(row);
+        }
+    }
+
+    /// 手动模式：执行排队的缩略图请求并写回界面，返回结果数。慢文件先以超时结束（见 [`Controller::finish_slow_thumbs`]）。
+    pub fn pump_thumbs(&self) -> usize {
+        let mut n = 0;
+        loop {
+            let done = self.thumbs.run_manual();
+            if done.is_empty() {
+                return n;
+            }
+            n += done.len();
+            for d in done {
+                self.on_thumb(d);
+            }
+        }
+    }
+
+    /// 手动模式：完成之前超时的慢文件（迟到补图），返回补上的数量。
+    pub fn finish_slow_thumbs(&self) -> usize {
+        let done = self.thumbs.finish_slow_manual();
+        let n = done.len();
+        for d in done {
+            self.on_thumb(d);
+        }
+        n
+    }
+
+    /// 缩略图子系统（harness 与测试读取计数、缓存）。
+    pub fn thumbs(&self) -> &Thumbs {
+        &self.thumbs
+    }
+
+    /// 刷新“更多”菜单里的缓存占用与容量。
+    pub fn sync_thumb_cache_usage(&self) {
+        if let Some(w) = self.window.upgrade() {
+            w.set_thumb_cache_usage(self.thumbs.usage_text().into());
+            w.set_thumb_cache_capacity_mb(self.thumbs.capacity_mb() as i32);
+        }
+    }
+
+    pub fn set_thumb_cache_capacity(&self, mb: i32) {
+        let r = self.thumbs.set_capacity_mb(u64::try_from(mb).unwrap_or(0));
+        self.sync_thumb_cache_usage();
+        if let Err(e) = r {
+            self.set_message(&e);
+        }
+    }
+
+    /// 清空缩略图缓存：内存缓存立即清空并重新请求可见项；磁盘清空在后台执行（手动模式当场执行），
+    /// 清空开始前已在生成的结果照常显示，但不会写回磁盘（缓存代号已变）。
+    pub fn clear_thumb_cache(&self) {
+        self.thumbs.clear_memory();
+        for p in [0, 1] {
+            self.ui[p].items.reset();
+        }
+        match self.thumbs.disk().cloned() {
+            Some(d) if self.thumbs.threaded() => {
+                let id = self.id;
+                std::thread::spawn(move || post(id, Msg::ThumbCacheCleared(d.clear())));
+            }
+            Some(d) => self.handle(Msg::ThumbCacheCleared(d.clear())),
+            None => self.set_message("已清空缩略图内存缓存"),
+        }
+        self.refresh_thumbs();
     }
 
     // ---------- 会话保存 ----------
@@ -1203,14 +1329,16 @@ impl Controller {
             self.sync_pane(p);
         }
         self.sync_global();
+        self.refresh_thumbs();
     }
 
-    /// 重置并刷新这些面板的条目与状态。
+    /// 重置并刷新这些面板的条目与状态（活动面板、单栏／双栏变化也经过这里，缩略图优先级随之更新）。
     fn update_panes(&self, panes: &[usize]) {
         for &p in panes {
             self.ui[p].items.reset();
             self.sync_pane(p);
         }
+        self.refresh_thumbs();
     }
 
     /// 面板状态与标签带、路径分段。
@@ -1348,32 +1476,29 @@ fn names_of(t: &Tab) -> Vec<String> {
 
 /// 进入目录计时：反复在 `target` 与其上级之间切换（在活动面板的当前标签），每次进入 `target` 前记录
 /// `bench-iter`，随后的 `dir-ready-us` 即为该次“进入目录到可操作”的耗时。结束后调用 `done`。
-/// 需要开启调试日志（`--debug-perf`）才有数据。
+/// 需要开启调试日志（`--debug-perf`）才有数据。`interval` 为每一步的间隔（缩略图计时需留足首屏完成的时间）。
 pub fn start_bench(
     c: Rc<Controller>,
     target: PathBuf,
     runs: u32,
+    interval: Duration,
     done: impl Fn() + 'static,
 ) -> slint::Timer {
     let parent = target.parent().map(PathBuf::from).unwrap_or(target.clone());
     let timer = slint::Timer::default();
     let k = Cell::new(0u32);
-    timer.start(
-        slint::TimerMode::Repeated,
-        Duration::from_millis(400),
-        move || {
-            let i = k.get();
-            k.set(i + 1);
-            let p = c.ws().active_pane();
-            if i > runs * 2 {
-                done();
-            } else if i % 2 == 1 {
-                perf::event("bench-iter", Some((i / 2) as i64));
-                c.navigate_path(p, target.clone());
-            } else {
-                c.navigate_path(p, parent.clone());
-            }
-        },
-    );
+    timer.start(slint::TimerMode::Repeated, interval, move || {
+        let i = k.get();
+        k.set(i + 1);
+        let p = c.ws().active_pane();
+        if i > runs * 2 {
+            done();
+        } else if i % 2 == 1 {
+            perf::event("bench-iter", Some((i / 2) as i64));
+            c.navigate_path(p, target.clone());
+        } else {
+            c.navigate_path(p, parent.clone());
+        }
+    });
     timer
 }

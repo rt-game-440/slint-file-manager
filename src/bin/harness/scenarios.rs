@@ -19,6 +19,8 @@ pub struct Scenario {
     pub load: bool,
     /// 是否双栏（旧场景保持单栏，构图与基线可比）
     pub split: bool,
+    /// 是否使用（每次清空的）缩略图持久缓存目录；默认只用内存缓存
+    pub thumb_cache: bool,
     pub setup: fn(&Ctx) -> Res<()>,
 }
 
@@ -363,6 +365,7 @@ const fn s(
         text_scale: 1.0,
         load: true,
         split: false,
+        thumb_cache: false,
         setup,
     }
 }
@@ -429,6 +432,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.0,
         load: false,
         split: false,
+        thumb_cache: false,
         setup: loading,
     },
     s(
@@ -456,6 +460,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.5,
         load: true,
         split: false,
+        thumb_cache: false,
         setup: text_scale,
     },
     Scenario {
@@ -465,6 +470,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.5,
         load: true,
         split: false,
+        thumb_cache: false,
         setup: list_text_scale,
     },
     s(
@@ -534,6 +540,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.5,
         load: true,
         split: false,
+        thumb_cache: false,
         setup: search_results,
     },
     Scenario {
@@ -543,6 +550,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.0,
         load: true,
         split: true,
+        thumb_cache: false,
         setup: dual_default,
     },
     Scenario {
@@ -552,6 +560,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.0,
         load: true,
         split: true,
+        thumb_cache: false,
         setup: dual_tabs,
     },
     Scenario {
@@ -561,6 +570,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.0,
         load: true,
         split: true,
+        thumb_cache: false,
         setup: dual_unavailable,
     },
     Scenario {
@@ -570,6 +580,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.0,
         load: true,
         split: true,
+        thumb_cache: false,
         setup: single_right,
     },
     Scenario {
@@ -579,6 +590,7 @@ pub const STATIC: &[Scenario] = &[
         text_scale: 1.5,
         load: true,
         split: true,
+        thumb_cache: false,
         setup: dual_default_right,
     },
     s(
@@ -623,6 +635,35 @@ pub const STATIC: &[Scenario] = &[
         "对话框标题“部分项目没有还原”，写明“会议纪要.txt：原位置已有同名项目，未覆盖”；回收站视图中只剩“会议纪要.txt”；状态栏红色“部分完成：1 项已还原到原位置，1 项未能还原”",
         restore_conflict,
     ),
+    // ---------- 缩略图（Issue #10） ----------
+    s(
+        "thumbs-loading",
+        "进入缩略图样例，缩略图请求尚未执行（选中 01 风景.webp）",
+        "10 个图片文件显示浅灰圆角占位与淡色图片图标（加载中）；说明.txt 与不支持的 .tif 显示普通类型图标；网格单元比旧版高（缩略图区 84px），名称在下方；选中态照常显示",
+        crate::thumbs::scene_loading,
+    ),
+    s(
+        "thumbs-ready",
+        "缩略图全部完成（慢文件已迟到补图），选中 02 横拍竖看.jpg",
+        "01–07 与 10 显示缩略图并按比例居中、不放大：01 横图；02 为竖图且红块在右上（EXIF 方向已校正）；03、06 中间透明圆露出单元底色；04 为 GIF 第一帧（不是纯蓝）；07 扩展名为 .jpg 的 PNG 正常显示；08 损坏、09 超大尺寸显示图片类型图标；11、12 显示类型图标",
+        crate::thumbs::scene_ready,
+    ),
+    s(
+        "thumbs-fallback",
+        "慢文件（10 慢.webp）超过 2 秒仍未完成时的状态，选中 08 损坏.webp",
+        "10 慢.webp 与 08、09 一样显示图片类型图标（超时回退，不再显示加载占位）；其余图片缩略图正常；选中的损坏文件照常高亮",
+        crate::thumbs::scene_fallback,
+    ),
+    Scenario {
+        name: "thumb-cache-menu",
+        content: "缩略图全部生成并写入（空的）持久缓存后，点击工具栏“更多”",
+        expected: "“更多”按钮下方弹出白色圆角菜单：标题“缩略图缓存”、占用说明（已用若干 KB、8 张、上限 512 MB）、分隔线、“容量上限”及 256 MB／512 MB（勾选）／1 GB／2 GB、分隔线、“清空缩略图缓存”",
+        text_scale: 1.0,
+        load: true,
+        split: false,
+        thumb_cache: true,
+        setup: crate::thumbs::scene_cache_menu,
+    },
 ];
 
 /// 动画场景：在完成首次加载的窗口上，`start` 触发动画。
@@ -689,6 +730,13 @@ pub fn open(name: &str, size: (u32, u32), scale: f32) -> Res<Ctx> {
             live,
             // 名称以 search- 开头的场景使用固定的搜索环境（模拟增强后端、全盘根目录，见 search::showcase_env）
             search: crate::search::showcase_env(name),
+            thumb_cache: if sc.thumb_cache {
+                let d = fixture::scratch_dir("scene-thumb-cache");
+                let _ = std::fs::remove_dir_all(&d);
+                Some(d)
+            } else {
+                None
+            },
             ..Opts::default()
         },
     )?;

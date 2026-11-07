@@ -10,6 +10,11 @@ export enum SortKey { name, modified, size, kind }
 // 键盘移动方向（由 Rust 计算目标项）
 export enum NavKey { left, right, up, down, home, end, page-up, page-down }
 
+// 网格中一项的缩略图状态（Issue #10）：none 不生成（文件夹、非图片、列表视图）；loading 排队或生成中；
+// ready 已有缩略图；failed 无法生成（损坏、不支持、超限、云端占位）；timeout 超过 2 秒仍未完成（之后若成功会补上）。
+// failed／timeout 都显示类型图标，不弹提示。
+export enum ThumbState { none, loading, ready, failed, timeout }
+
 // 文件列表中的一项。所有文字来自真实元数据。
 export struct FileItem {
     name: string,
@@ -19,6 +24,8 @@ export struct FileItem {
     is-dir: bool,
     icon: string,
     selected: bool,
+    thumb-state: ThumbState,
+    thumb: image,
 }
 
 // 路径导航中的一段；对应的完整路径保存在 Rust 侧。

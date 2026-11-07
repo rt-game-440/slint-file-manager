@@ -7,13 +7,14 @@ use i_slint_backend_testing::{
 use slint::ComponentHandle;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint_file_manager::app::{
-    self, Controller, DriveSource, Env, LiveEnv, Loader, MenuCall, MenuMode, Opener,
+    self, Controller, DriveSource, Env, LiveEnv, Loader, MenuCall, MenuMode, Opener, ThumbEnv,
+    ThumbMode,
 };
 use slint_file_manager::browse::places::Drive;
 use slint_file_manager::browse::session::SessionStore;
 use slint_file_manager::fileops::StashBackend;
 use slint_file_manager::{MainWindow, Theme};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fs::File;
@@ -120,6 +121,8 @@ pub struct Ctx {
     pub stash: Arc<StashBackend>,
     /// 右键菜单请求的记录（harness 不弹出系统菜单）
     pub menus: Rc<RefCell<Vec<MenuCall>>>,
+    /// 为真时 [`Ctx::pump`] 不执行缩略图请求（截“加载中”状态）
+    pub hold_thumbs: Cell<bool>,
     t0: u64,
 }
 
@@ -139,7 +142,12 @@ pub struct Opts {
     pub live: Option<LiveEnv>,
     /// 搜索环境（后端、全盘根目录）；`None` 为惰性环境（手动模式、无增强、全盘根目录为空）
     pub search: Option<app::SearchEnv>,
+    /// 缩略图持久缓存目录；`None` 只用内存缓存（默认）
+    pub thumb_cache: Option<PathBuf>,
 }
+
+/// harness 里文件名含这个字的图片被当作“慢文件”：先超时，之后由 [`Controller::finish_slow_thumbs`] 补图。
+pub const SLOW_MARK: &str = "慢";
 
 impl Default for Opts {
     fn default() -> Opts {
@@ -151,6 +159,7 @@ impl Default for Opts {
             session: None,
             live: None,
             search: None,
+            thumb_cache: None,
         }
     }
 }
@@ -200,6 +209,14 @@ impl Ctx {
                 live: o.live.unwrap_or_else(LiveEnv::inert),
                 backend: stash.clone(),
                 search: o.search.unwrap_or_else(app::SearchEnv::inert),
+                thumbs: ThumbEnv {
+                    mode: ThumbMode::Manual(Some(Box::new(|p: &Path| {
+                        p.file_name()
+                            .is_some_and(|n| n.to_string_lossy().contains(SLOW_MARK))
+                    }))),
+                    cache_dir: o.thumb_cache,
+                    settings_file: None,
+                },
             },
         );
         win.show()?;
@@ -225,6 +242,7 @@ impl Ctx {
             drives,
             stash,
             menus,
+            hold_thumbs: Cell::new(false),
             t0: get_mocked_time(),
         };
         if o.load {
@@ -233,10 +251,17 @@ impl Ctx {
         Ok(c)
     }
 
-    /// 执行排队的目录读取并推进一点时间让界面更新；返回执行的请求数。
+    /// 执行排队的目录读取（以及缩略图请求，除非 `hold_thumbs`）并推进一点时间让界面更新；返回执行的目录读取数。
     pub fn pump(&self) -> usize {
         let n = self.ctl.pump();
+        if !self.hold_thumbs.get() {
+            self.ctl.pump_thumbs();
+        }
         self.advance(16);
+        if !self.hold_thumbs.get() {
+            // 可见范围变化回调（推进时间后触发）可能追加请求；结果在下一次截图前写回
+            self.ctl.pump_thumbs();
+        }
         n
     }
 

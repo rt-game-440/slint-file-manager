@@ -3,9 +3,16 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
-import { FileItem, SortKey } from "types.slint";
+import { FileItem, SortKey, ThumbState } from "types.slint";
 
-// 网格中的一格。图标格位将来用于放置缩略图（Issue #10）。
+// 网格中缩略图格位的高度（不含文件名）。A2：图片本身是主体，格位比类型图标大；图标仍按 56px 显示。
+export global GridMetrics {
+    out property <length> thumb-h: 84px * min(Theme.text-scale, 1.5);
+    out property <length> icon-h: 56px * min(Theme.text-scale, 1.5);
+    out property <length> min-cell-w: 124px * Theme.text-scale;
+}
+
+// 网格中的一格：有缩略图时显示缩略图，否则显示类型图标（加载中为浅色占位）。
 component GridCell inherits Rectangle {
     in property <FileItem> item;
     in property <int> index;
@@ -25,6 +32,8 @@ component GridCell inherits Rectangle {
     accessible-item-selectable: true;
     accessible-item-selected: root.item.selected;
     accessible-item-index: root.index;
+    // 缩略图状态供无头测试读取（harness 按描述断言）
+    accessible-description: root.item.thumb-state == ThumbState.loading ? "缩略图加载中" : root.item.thumb-state == ThumbState.ready ? "缩略图已显示" : root.item.thumb-state == ThumbState.failed ? "无法生成缩略图" : root.item.thumb-state == ThumbState.timeout ? "缩略图超时" : "";
     accessible-action-default => {
         root.activate(root.index);
     }
@@ -49,15 +58,36 @@ component GridCell inherits Rectangle {
         spacing: 6px;
 
         thumb := Rectangle {
-            height: 56px * min(Theme.text-scale, 1.5);
-            Icon {
+            height: GridMetrics.thumb-h;
+            // 加载中：浅色圆角占位 + 浅色类型图标（静态，不做闪烁动画，避免整屏同时闪动）
+            if root.item.thumb-state == ThumbState.loading: Rectangle {
+                width: min(parent.width, GridMetrics.thumb-h * 1.25);
+                height: parent.height;
+                x: (parent.width - self.width) / 2;
+                border-radius: 6px;
+                background: Theme.hover-soft;
+            }
+            if root.item.thumb-state != ThumbState.ready: Icon {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 name: root.item.icon;
-                size: parent.height;
+                size: GridMetrics.icon-h;
                 line-width: 1.3px;
-                tint: root.item.is-dir ? Theme.folder : Theme.text-secondary;
+                tint: root.item.is-dir ? Theme.folder : root.item.thumb-state == ThumbState.loading ? Theme.text-disabled : Theme.text-secondary;
                 fill-color: root.item.is-dir ? Theme.folder-fill : transparent;
+            }
+            // 缩略图：完整显示（contain），不放大超过原始像素尺寸，居中
+            if root.item.thumb-state == ThumbState.ready: thumb-image := Image {
+                property <length> natural-w: root.item.thumb.width * 1px;
+                property <length> natural-h: root.item.thumb.height * 1px;
+                property <float> k: min(1, min(parent.width / max(1px, self.natural-w), parent.height / max(1px, self.natural-h)));
+                width: self.natural-w * self.k;
+                height: self.natural-h * self.k;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                source: root.item.thumb;
+                image-fit: contain;
+                accessible-role: none;
             }
         }
 
@@ -83,16 +113,27 @@ export component FileGrid inherits Rectangle {
     callback background-pointer(bool);
     callback item-context(int);
     callback background-context();
+    // 可见范围变化（滚动、尺寸、列数、条目数）：Rust 读取 visible-first／visible-end 并重排缩略图请求
+    callback viewport-changed();
 
     property <length> pad: 12px;
     property <length> scrollbar-reserve: 12px;
-    property <length> min-cell-w: 116px * Theme.text-scale;
-    property <length> cell-h: 56px * min(Theme.text-scale, 1.5) + Theme.font * 2.8 + 30px;
+    property <length> min-cell-w: GridMetrics.min-cell-w;
+    property <length> cell-h: GridMetrics.thumb-h + Theme.font * 2.8 + 30px;
     // 列数与一页的行数，供键盘移动使用
     out property <int> cols: max(1, floor((root.width - 2 * root.pad - root.scrollbar-reserve) / root.min-cell-w));
     out property <int> page-rows: max(1, floor((root.height - root.pad) / root.cell-h));
     property <length> cell-w: (root.width - 2 * root.pad - root.scrollbar-reserve) / root.cols;
     property <int> row-count: ceil(root.items.length / root.cols);
+    // 可见（含半露出）项的下标范围 [visible-first, visible-end)，供缩略图调度使用
+    out property <int> visible-first: min(root.items.length, max(0, floor((-lv.content-y - root.pad) / root.cell-h)) * root.cols);
+    out property <int> visible-end: min(root.items.length, max(0, ceil((-lv.content-y + lv.visible-height - root.pad) / root.cell-h)) * root.cols);
+    changed visible-first => {
+        root.viewport-changed();
+    }
+    changed visible-end => {
+        root.viewport-changed();
+    }
 
     pure function row-top(i: int) -> length {
         return root.pad + floor(i / root.cols) * root.cell-h;

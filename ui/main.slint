@@ -164,6 +164,14 @@ export component MainWindow inherits Window {
     in-out property <string> search-text;
     in property <SearchView> search-view;
     in property <[SearchItem]> search-items;
+    // 缩略图缓存（“更多”菜单）：占用说明与当前容量上限（MiB），打开菜单时由 Rust 刷新
+    in property <string> thumb-cache-usage;
+    in property <int> thumb-cache-capacity-mb: 512;
+    // 网格可见项范围（缩略图调度读取）
+    out property <int> left-visible-first: left-pane.visible-first;
+    out property <int> left-visible-end: left-pane.visible-end;
+    out property <int> right-visible-first: right-pane.visible-first;
+    out property <int> right-visible-end: right-pane.visible-end;
 
     // 工具栏与键盘作用于活动面板
     property <PaneView> active-view: root.active-pane == 0 ? root.left-view : root.right-view;
@@ -218,6 +226,11 @@ export component MainWindow inherits Window {
     callback sidebar-clicked(string);
     callback sidebar-remove(string);
     callback toggle-favorite();
+    // 缩略图：网格可见范围变化（面板编号）；缓存菜单打开、设置容量（MiB）、清空
+    callback thumbs-viewport(int);
+    callback thumb-cache-menu-opened();
+    callback thumb-cache-set-capacity(int);
+    callback thumb-cache-clear();
     callback request-close();
     callback search-edited(string);
     callback search-submit();
@@ -590,6 +603,18 @@ export component MainWindow inherits Window {
                                 }
                             }
 
+                            VerticalLayout {
+                                alignment: center;
+                                more-button := IconButton {
+                                    icon: "more";
+                                    label: "更多";
+                                    clicked => {
+                                        root.thumb-cache-menu-opened();
+                                        more-menu.show();
+                                    }
+                                }
+                            }
+
                             Rectangle {
                                 width: 9px;
                                 Rectangle {
@@ -669,6 +694,104 @@ export component MainWindow inherits Window {
                                 danger: true;
                                 clicked => {
                                     root.request-close();
+                                }
+                            }
+                        }
+
+                        // “更多”菜单：缩略图缓存的占用、容量上限与清空（Issue #10）
+                        more-menu := PopupWindow {
+                            x: more-button.absolute-position.x - toolbar.absolute-position.x;
+                            y: Theme.toolbar-h - 6px;
+                            width: 240px * Theme.text-scale;
+                            close-policy: close-on-click-outside;
+
+                            Rectangle {
+                                background: Theme.surface;
+                                border-radius: 10px;
+                                border-width: 1px;
+                                border-color: Theme.divider;
+                                drop-shadow-blur: 16px;
+                                drop-shadow-offset-y: 4px;
+                                drop-shadow-color: #00000022;
+
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 1px;
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        height: Theme.control-h;
+                                        Text {
+                                            text: "缩略图缓存";
+                                            color: Theme.text;
+                                            font-size: Theme.font;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        padding-bottom: 4px;
+                                        thumb-cache-usage-label := Text {
+                                            text: root.thumb-cache-usage;
+                                            color: Theme.text-secondary;
+                                            font-size: Theme.font-small;
+                                            wrap: word-wrap;
+                                            accessible-role: text;
+                                            accessible-label: "缩略图缓存占用";
+                                            accessible-value: root.thumb-cache-usage;
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        height: 9px;
+                                        Rectangle {
+                                            y: 4px;
+                                            height: 1px;
+                                            background: Theme.divider;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        height: Theme.control-h * 0.8;
+                                        Text {
+                                            text: "容量上限";
+                                            color: Theme.text-secondary;
+                                            font-size: Theme.font-small;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    for c in [256, 512, 1024, 2048]: MenuRow {
+                                        text: c >= 1024 ? (c / 1024) + " GB" : c + " MB";
+                                        checked: root.thumb-cache-capacity-mb == c;
+                                        clicked => {
+                                            root.thumb-cache-set-capacity(c);
+                                            more-menu.close();
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        height: 9px;
+                                        Rectangle {
+                                            y: 4px;
+                                            height: 1px;
+                                            background: Theme.divider;
+                                        }
+                                    }
+
+                                    MenuRow {
+                                        text: "清空缩略图缓存";
+                                        checked: false;
+                                        clicked => {
+                                            root.thumb-cache-clear();
+                                            more-menu.close();
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -842,6 +965,9 @@ export component MainWindow inherits Window {
                             pane-activated(a0) => {
                                 root.pane-activated(a0);
                             }
+                            thumbs-viewport(a0) => {
+                                root.thumbs-viewport(a0);
+                            }
                         }
 
                         if root.split: Rectangle {
@@ -926,6 +1052,9 @@ export component MainWindow inherits Window {
                             }
                             pane-activated(a0) => {
                                 root.pane-activated(a0);
+                            }
+                            thumbs-viewport(a0) => {
+                                root.thumbs-viewport(a0);
                             }
                         }
 
