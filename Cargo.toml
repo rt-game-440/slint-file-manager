@@ -15,6 +15,14 @@ harness = [
 [dependencies]
 slint = "1.18.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Windows API：默认应用打开（ShellExecuteExW）、资源管理器同款名称排序（StrCmpLogicalW）、读取系统文字缩放
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 # 内部测试后端，必须与 slint 同版本（见 docs/debug-harness.md）
 i-slint-backend-testing = { version = "=1.18.1", optional = true, features = ["renderer-software"] }
 png = { version = "0.18", optional = true }

@@ -1,114 +1,559 @@
-// 基线窗口 + 调试观测框架的示例交互与示例动画（Issue #22）。
-// 标识约定见 docs/debug-harness.md：元素 id 用 kebab-case，可交互元素同时设置 accessible-label。
+// 主窗口：A2 风格的融合顶部（标题 + 工具栏 + 右上窗口控制）、浅灰侧栏、单个浏览面板与状态栏。
+// 标识约定见 docs/debug-harness.md：元素 id 用 kebab-case，可交互元素同时设置 accessible-label；
+// 窗口根组件的 out 属性供 harness 读取状态。
+import { Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+import { IconButton, WindowButton, MenuRow } from "controls.slint";
+import { BrowserPane } from "browser-pane.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb } from "types.slint";
+
+export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb }
+
+struct SidebarEntry {
+    id: string,
+    label: string,
+    icon: string,
+    enabled: bool,
+}
+
+component SidebarRow inherits Rectangle {
+    in property <SidebarEntry> entry;
+    in property <bool> current;
+    callback clicked();
+
+    height: 36px * Theme.text-scale;
+    border-radius: Theme.radius;
+    background: root.current ? Theme.accent-soft : (root.entry.enabled && ta.has-hover) ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.entry.label;
+    accessible-enabled: root.entry.enabled;
+    accessible-description: root.entry.enabled ? "" : "后续版本提供";
+    accessible-checkable: true;
+    accessible-checked: root.current;
+    accessible-action-default => {
+        if root.entry.enabled {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        spacing: 10px;
+
+        Rectangle {
+            width: Theme.icon-s;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                name: root.entry.icon;
+                tint: !root.entry.enabled ? Theme.text-disabled : root.current ? Theme.accent : Theme.text;
+            }
+        }
+
+        Text {
+            text: root.entry.label;
+            color: root.entry.enabled ? Theme.text : Theme.text-disabled;
+            font-size: Theme.font + 1px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    ta := TouchArea {
+        enabled: root.entry.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 export component MainWindow inherits Window {
-    title: "Slint 文件管理器";
-    preferred-width: 960px;
-    preferred-height: 600px;
-    background: #f5f5f5;
-
-    // 示例状态（harness 通过这些属性读取状态）
-    in-out property <int> click-count: 0;
-    in-out property <bool> panel-open: false;
-    out property <bool> key-focused: demo-focus.has-focus;
-    out property <length> list-scroll-y: demo-list.content-y;
-    // 供 Rust 侧记录关键界面事件（动画开始、滚动）
-    callback demo-animation-toggled(bool);
-    callback demo-scrolled();
-
-    public function demo-toggle() {
-        root.panel-open = !root.panel-open;
-        root.click-count += 1;
-        root.demo-animation-toggled(root.panel-open);
+    title: "文件管理器";
+    no-frame: true;
+    resize-border-width: 6px;
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    min-width: 640px;
+    min-height: 420px;
+    background: Theme.sidebar-bg;
+    default-font-family: "Microsoft YaHei UI";
+    default-font-size: Theme.font;
+    init => {
+        Palette.color-scheme = ColorScheme.light;
+        pane.focus-content();
     }
 
-    Text {
-        text: "Slint 文件管理器（基线）";
-        color: #1a1a1a;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    // ---------- 浏览面板状态（Rust 写入，harness 读取） ----------
+    in property <[FileItem]> items <=> pane.items;
+    in property <int> cursor-index <=> pane.cursor-index;
+    in property <ContentState> content-state <=> pane.state;
+    in property <string> error-detail <=> pane.error-detail;
+    in property <ViewMode> view <=> pane.view;
+    in property <SortKey> sort-key <=> pane.sort-key;
+    in property <bool> sort-ascending <=> pane.sort-ascending;
+    in property <string> location-text <=> pane.location-text;
+    in property <string> tab-title <=> pane.tab-title;
+    in property <[Crumb]> crumbs <=> pane.crumbs;
+    in property <bool> can-back <=> pane.can-back;
+    in property <bool> can-forward <=> pane.can-forward;
+    in property <bool> can-up <=> pane.can-up;
+    in-out property <bool> editing-address <=> pane.editing-address;
+    in property <int> selected-count;
+    in property <string> status-text;
+    in property <string> status-message;
+    // 侧栏当前项 id（位置与侧栏入口一致时高亮）
+    in property <string> sidebar-current;
+
+    // harness 导出的状态
+    out property <int> item-count: root.items.length;
+    out property <string> focus-area: pane.content-focused ? "content" : pane.address-focused ? "address" : "none";
+
+    // ---------- 事件（Rust 处理） ----------
+    callback navigate-to <=> pane.navigate-to;
+    callback go-back <=> pane.go-back;
+    callback go-forward <=> pane.go-forward;
+    callback go-up <=> pane.go-up;
+    callback refresh <=> pane.refresh;
+    callback crumb-clicked <=> pane.crumb-clicked;
+    callback item-pointer <=> pane.item-pointer;
+    callback item-activate <=> pane.item-activate;
+    callback background-pointer <=> pane.background-pointer;
+    callback nav-key <=> pane.nav-key;
+    callback select-all <=> pane.select-all;
+    callback activate-selection <=> pane.activate-selection;
+    callback toggle-cursor <=> pane.toggle-cursor;
+    callback open-location <=> pane.open-location;
+    callback set-sort(SortKey, bool);
+    callback set-view(ViewMode);
+    callback sidebar-clicked(string);
+    callback request-close();
+
+    property <[SidebarEntry]> sidebar-entries: [
+        { id: "home", label: "主目录", icon: "home", enabled: true },
+        { id: "favorites", label: "收藏", icon: "star", enabled: false },
+        { id: "this-pc", label: "此电脑", icon: "computer", enabled: false },
+        { id: "onedrive", label: "OneDrive", icon: "cloud", enabled: false },
+        { id: "icloud", label: "iCloud", icon: "cloud", enabled: false },
+        { id: "recycle-bin", label: "回收站", icon: "trash", enabled: false },
+    ];
+
+    public function begin-edit-address() {
+        pane.begin-edit-address();
     }
 
-    demo-focus := FocusScope {
-        key-pressed(event) => {
-            if (event.text == " ") {
-                root.demo-toggle();
+    // 全局快捷键：子元素未处理的按键冒泡到这里
+    shortcuts := FocusScope {
+        focus-on-click: false;
+        key-pressed(e) => {
+            if (e.modifiers.alt && e.text == Key.LeftArrow) {
+                root.go-back();
                 return accept;
             }
-            return reject;
+            if (e.modifiers.alt && e.text == Key.RightArrow) {
+                root.go-forward();
+                return accept;
+            }
+            if (e.modifiers.alt && e.text == Key.UpArrow) {
+                root.go-up();
+                return accept;
+            }
+            if (e.text == Key.Backspace) {
+                root.go-back();
+                return accept;
+            }
+            if (e.text == Key.F5) {
+                root.refresh();
+                return accept;
+            }
+            if (e.text == Key.F4 || (e.modifiers.control && (e.text == "l" || e.text == "L")) || (e.modifiers.alt && (e.text == "d" || e.text == "D"))) {
+                pane.begin-edit-address();
+                return accept;
+            }
+            reject
         }
 
-        // 示例交互：点击按钮或按空格切换面板
-        demo-toggle-button := Rectangle {
-            x: 24px;
-            y: 24px;
-            width: 180px;
-            height: 40px;
-            border-radius: 6px;
-            border-width: demo-focus.has-focus ? 2px : 0px;
-            border-color: #1b3f8f;
-            background: #2d6cdf;
-            accessible-role: button;
-            accessible-label: "切换示例面板";
-            accessible-checkable: true;
-            accessible-checked: root.panel-open;
+        VerticalLayout {
+            HorizontalLayout {
+                vertical-stretch: 1;
 
-            Text {
-                text: "切换面板（" + root.click-count + "）";
-                color: white;
-            }
+                // ---------- 侧栏 ----------
+                sidebar := Rectangle {
+                    width: Theme.sidebar-w;
+                    background: Theme.sidebar-bg;
 
-            TouchArea {
-                clicked => {
-                    demo-focus.focus();
-                    root.demo-toggle();
+                    VerticalLayout {
+                        title-area := Rectangle {
+                            height: Theme.toolbar-h;
+                            WindowMoveArea {
+                                TouchArea {
+                                    double-clicked => {
+                                        root.maximized = !root.maximized;
+                                    }
+                                }
+                            }
+
+                            Text {
+                                x: 20px;
+                                text: "文件管理器";
+                                color: Theme.text;
+                                font-size: Theme.font-title;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        VerticalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            padding-top: 6px;
+                            spacing: 4px;
+                            alignment: start;
+                            vertical-stretch: 1;
+                            accessible-role: list;
+                            accessible-label: "导航";
+
+                            for s in root.sidebar-entries: SidebarRow {
+                                entry: s;
+                                current: s.id == root.sidebar-current;
+                                clicked => {
+                                    root.sidebar-clicked(s.id);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 1px;
+                    background: Theme.divider;
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+
+                    // ---------- 融合工具栏 ----------
+                    toolbar := Rectangle {
+                        height: Theme.toolbar-h;
+                        background: Theme.chrome-bg;
+
+                        WindowMoveArea {
+                            TouchArea {
+                                double-clicked => {
+                                    root.maximized = !root.maximized;
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            // 右侧留出窗口控制按钮的位置
+                            padding-right: 3 * 44px + 10px;
+                            spacing: 4px;
+                            alignment: start;
+
+                            VerticalLayout {
+                                alignment: center;
+                                sort-button := IconButton {
+                                    icon: "sort";
+                                    label: "排序方式";
+                                    clicked => {
+                                        sort-menu.show();
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 9px;
+                                Rectangle {
+                                    x: 4px;
+                                    width: 1px;
+                                    height: 18px;
+                                    background: Theme.divider-strong;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                view-grid-button := IconButton {
+                                    icon: "grid";
+                                    label: "网格视图";
+                                    checkable: true;
+                                    checked: root.view == ViewMode.grid;
+                                    clicked => {
+                                        root.set-view(ViewMode.grid);
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                view-list-button := IconButton {
+                                    icon: "list";
+                                    label: "列表视图";
+                                    checkable: true;
+                                    checked: root.view == ViewMode.list;
+                                    clicked => {
+                                        root.set-view(ViewMode.list);
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 9px;
+                                Rectangle {
+                                    x: 4px;
+                                    width: 1px;
+                                    height: 18px;
+                                    background: Theme.divider-strong;
+                                }
+                            }
+
+                            // 双栏入口：保留 A2 位置，功能在 Issue #6 提供，当前为禁用外观
+                            VerticalLayout {
+                                alignment: center;
+                                split-button := Rectangle {
+                                    height: Theme.control-h;
+                                    width: split-row.preferred-width;
+                                    accessible-role: button;
+                                    accessible-label: "双栏";
+                                    accessible-enabled: false;
+                                    accessible-description: "后续版本提供";
+
+                                    split-row := HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 6px;
+                                        Rectangle {
+                                            width: Theme.icon-s;
+                                            Icon {
+                                                y: (parent.height - self.height) / 2;
+                                                name: "split";
+                                                tint: Theme.text-disabled;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "双栏";
+                                            color: Theme.text-disabled;
+                                            font-size: Theme.font;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+
+                            // 搜索入口：保留 A2 位置，搜索在 Issue #11 提供，当前为禁用外观
+                            VerticalLayout {
+                                alignment: center;
+                                search-box := Rectangle {
+                                    width: 220px * Theme.text-scale;
+                                    height: Theme.control-h;
+                                    border-radius: Theme.control-h / 2;
+                                    background: #f0f1f4;
+                                    border-width: 1px;
+                                    border-color: Theme.divider;
+                                    accessible-role: text-input;
+                                    accessible-label: "搜索";
+                                    accessible-enabled: false;
+                                    accessible-description: "后续版本提供";
+
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        spacing: 6px;
+                                        Rectangle {
+                                            width: Theme.icon-s * 0.9;
+                                            Icon {
+                                                y: (parent.height - self.height) / 2;
+                                                name: "search";
+                                                size: Theme.icon-s * 0.9;
+                                                tint: Theme.text-disabled;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "搜索（即将提供）";
+                                            color: Theme.text-disabled;
+                                            font-size: Theme.font;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 右上角窗口控制
+                        window-controls := HorizontalLayout {
+                            x: parent.width - self.width - 4px;
+                            y: 2px;
+                            width: self.preferred-width;
+                            height: 30px;
+
+                            WindowButton {
+                                icon: "win-min";
+                                label: "最小化";
+                                clicked => {
+                                    root.minimized = true;
+                                }
+                            }
+
+                            WindowButton {
+                                icon: root.maximized ? "win-restore" : "win-max";
+                                label: root.maximized ? "还原" : "最大化";
+                                clicked => {
+                                    root.maximized = !root.maximized;
+                                }
+                            }
+
+                            WindowButton {
+                                icon: "win-close";
+                                label: "关闭";
+                                danger: true;
+                                clicked => {
+                                    root.request-close();
+                                }
+                            }
+                        }
+
+                        sort-menu := PopupWindow {
+                            x: sort-button.absolute-position.x - toolbar.absolute-position.x;
+                            y: Theme.toolbar-h - 6px;
+                            width: 180px * Theme.text-scale;
+                            close-policy: close-on-click-outside;
+
+                            Rectangle {
+                                background: Theme.surface;
+                                border-radius: 10px;
+                                border-width: 1px;
+                                border-color: Theme.divider;
+                                drop-shadow-blur: 16px;
+                                drop-shadow-offset-y: 4px;
+                                drop-shadow-color: #00000022;
+
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 1px;
+
+                                    MenuRow {
+                                        text: "名称";
+                                        checked: root.sort-key == SortKey.name;
+                                        clicked => {
+                                            root.set-sort(SortKey.name, root.sort-ascending);
+                                            sort-menu.close();
+                                        }
+                                    }
+
+                                    MenuRow {
+                                        text: "修改日期";
+                                        checked: root.sort-key == SortKey.modified;
+                                        clicked => {
+                                            root.set-sort(SortKey.modified, root.sort-ascending);
+                                            sort-menu.close();
+                                        }
+                                    }
+
+                                    MenuRow {
+                                        text: "类型";
+                                        checked: root.sort-key == SortKey.kind;
+                                        clicked => {
+                                            root.set-sort(SortKey.kind, root.sort-ascending);
+                                            sort-menu.close();
+                                        }
+                                    }
+
+                                    MenuRow {
+                                        text: "大小";
+                                        checked: root.sort-key == SortKey.size;
+                                        clicked => {
+                                            root.set-sort(SortKey.size, root.sort-ascending);
+                                            sort-menu.close();
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        height: 9px;
+                                        Rectangle {
+                                            y: 4px;
+                                            height: 1px;
+                                            background: Theme.divider;
+                                        }
+                                    }
+
+                                    MenuRow {
+                                        text: "递增";
+                                        checked: root.sort-ascending;
+                                        clicked => {
+                                            root.set-sort(root.sort-key, true);
+                                            sort-menu.close();
+                                        }
+                                    }
+
+                                    MenuRow {
+                                        text: "递减";
+                                        checked: !root.sort-ascending;
+                                        clicked => {
+                                            root.set-sort(root.sort-key, false);
+                                            sort-menu.close();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    pane := BrowserPane {
+                        vertical-stretch: 1;
+                        sort-clicked(k) => {
+                            root.set-sort(k, k == root.sort-key ? !root.sort-ascending : true);
+                        }
+                    }
                 }
             }
-        }
 
-        // 示例动画：位置与透明度随 panel-open 变化
-        demo-panel := Rectangle {
-            y: 100px;
-            width: 200px;
-            height: 120px;
-            border-radius: 8px;
-            background: #e8a33d;
-            x: root.panel-open ? 400px : 24px;
-            opacity: root.panel-open ? 1.0 : 0.3;
-            accessible-role: groupbox;
-            accessible-label: "示例面板";
-            animate x {
-                duration: 400ms;
-                easing: ease-out-back;
-            }
-            animate opacity {
-                duration: 400ms;
-                easing: ease-in-out;
-            }
-        }
+            // ---------- 状态栏 ----------
+            status-bar := Rectangle {
+                height: Theme.statusbar-h;
+                background: Theme.chrome-bg;
 
-        // 示例滚动：Flickable 内 10 行
-        demo-list := Flickable {
-            x: 24px;
-            y: 250px;
-            width: 200px;
-            height: 150px;
-            content-height: 300px;
-            changed content-y => {
-                root.demo-scrolled();
-            }
-            accessible-role: list;
-            accessible-label: "示例列表";
+                Rectangle {
+                    y: 0px;
+                    height: 1px;
+                    background: Theme.divider;
+                }
 
-            for i in 10: Rectangle {
-                y: i * 30px;
-                width: parent.width;
-                height: 30px;
-                background: mod(i, 2) == 0 ? #ffffff : #dde6f5;
-                accessible-role: list-item;
-                accessible-label: "示例行 " + i;
-                Text {
-                    text: "行 " + i;
-                    color: #1a1a1a;
+                HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    spacing: 16px;
+
+                    status-label := Text {
+                        text: root.status-text;
+                        color: Theme.text-secondary;
+                        font-size: Theme.font-small;
+                        vertical-alignment: center;
+                        accessible-role: text;
+                        accessible-label: "状态";
+                        accessible-value: root.status-text;
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+
+                    status-message-label := Text {
+                        text: root.status-message;
+                        color: Theme.danger;
+                        font-size: Theme.font-small;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: text;
+                        accessible-label: "提示";
+                        accessible-value: root.status-message;
+                    }
                 }
             }
         }

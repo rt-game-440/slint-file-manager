@@ -5,6 +5,7 @@
 mod compare;
 mod ctx;
 mod dump;
+mod fixture;
 mod frames;
 mod scenarios;
 
@@ -15,6 +16,8 @@ use std::path::{Path, PathBuf};
 
 const BASELINES: &str = "tests/baselines";
 const ARTIFACTS: &str = "artifacts";
+/// 默认逻辑窗口尺寸，与产品初始窗口一致
+const DEFAULT_SIZE: &str = "1100x720";
 
 struct Args {
     cmd: String,
@@ -43,8 +46,8 @@ impl Args {
             .unwrap_or_else(|| default.to_string())
     }
     fn size(&self) -> Res<(u32, u32)> {
-        let s = self.get("size", "960x600");
-        let (w, h) = s.split_once('x').ok_or("--size 形如 960x600")?;
+        let s = self.get("size", DEFAULT_SIZE);
+        let (w, h) = s.split_once('x').ok_or("--size 形如 1100x720")?;
         Ok((w.parse()?, h.parse()?))
     }
     fn scales(&self) -> Res<Vec<f32>> {
@@ -67,30 +70,9 @@ fn file_stem(scenario: &str, size: (u32, u32), scale: f32) -> String {
     format!("{scenario}_{}x{}_{}", size.0, size.1, pct(scale))
 }
 
-/// 夹具目录：必须存在；只记录名称与条目数，不读取内容，不接触用户真实目录。
-fn fixture_meta(args: &Args) -> Res<Value> {
-    let dir = args.dir("fixture", "tests/fixtures/basic");
-    if !dir.is_dir() {
-        return Err(format!("夹具目录不存在：{}", dir.display()).into());
-    }
-    fn count(d: &Path) -> usize {
-        std::fs::read_dir(d)
-            .map(|rd| {
-                rd.flatten()
-                    .map(|e| {
-                        if e.path().is_dir() {
-                            count(&e.path())
-                        } else {
-                            1
-                        }
-                    })
-                    .sum()
-            })
-            .unwrap_or(0)
-    }
-    Ok(
-        json!({"name": dir.file_name().map(|n| n.to_string_lossy().to_string()), "files": count(&dir)}),
-    )
+/// 样例目录信息：只记录名称与可见条目数，不接触用户真实目录。
+fn fixture_meta() -> Value {
+    json!({"name": fixture::ROOT_NAME, "root_entries": fixture::root_visible_count()})
 }
 
 fn meta(args: &Args, scale: f32) -> Res<Value> {
@@ -98,7 +80,7 @@ fn meta(args: &Args, scale: f32) -> Res<Value> {
     Ok(json!({
         "window": {"width": size.0, "height": size.1, "scale": scale},
         "renderer": ctx::RENDERER,
-        "fixture": fixture_meta(args)?,
+        "fixture": fixture_meta(),
     }))
 }
 
@@ -113,9 +95,8 @@ fn write_json(path: &Path, v: &Value) -> Res<()> {
 /// tree：按场景准备界面后导出元素树 JSON。
 fn cmd_tree(args: &Args) -> Res<i32> {
     let scale: f32 = args.get("scale", "1").parse()?;
-    let c = Ctx::new(args.size()?, scale)?;
-    let name = args.get("scenario", "idle");
-    (scenarios::find_static(&name)?.setup)(&c)?;
+    let name = args.get("scenario", "grid-selected");
+    let c = scenarios::open(&name, args.size()?, scale)?;
     let mut v = dump::tree(&c);
     v["meta"] = meta(args, scale)?;
     v["meta"]["scenario"] = json!(name);
@@ -169,8 +150,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
 fn render_stable(c_args: &Args, name: &str, scale: f32) -> Res<(ctx::Image, bool)> {
     let mut imgs = Vec::new();
     for _ in 0..2 {
-        let c = Ctx::new(c_args.size()?, scale)?;
-        (scenarios::find_static(name)?.setup)(&c)?;
+        let c = scenarios::open(name, c_args.size()?, scale)?;
         imgs.push(c.snapshot()?);
     }
     let stable = imgs[0].rgba == imgs[1].rgba;
@@ -290,7 +270,7 @@ fn cmd_compare(args: &Args) -> Res<i32> {
 fn cmd_frames(args: &Args) -> Res<i32> {
     let scale: f32 = args.get("scale", "1").parse()?;
     let size = args.size()?;
-    let name = args.get("scenario", "panel-toggle");
+    let name = args.get("scenario", "loading-appear");
     let sc = scenarios::find_anim(&name)?;
     let p = frames::Params {
         interval_ms: args.get("interval", "16").parse()?,
@@ -302,7 +282,7 @@ fn cmd_frames(args: &Args) -> Res<i32> {
     );
     let c = Ctx::new(size, scale)?;
     let summary = frames::capture(&c, sc, &p, &out)?;
-    let panel = &summary["panel"]["x"];
+    let op = &summary["loading"]["opacity"];
     println!(
         "帧序列：{}（间隔 {}ms，时长 {}ms）",
         out.display(),
@@ -310,8 +290,8 @@ fn cmd_frames(args: &Args) -> Res<i32> {
         p.duration_ms
     );
     println!(
-        "panel.x：起点 {} 终点 {} 过冲 {} 稳定于 {}ms",
-        panel["start"], panel["end"], panel["overshoot"], panel["settle_ms"]
+        "loading.opacity：起点 {} 终点 {} 过冲 {} 稳定于 {}ms",
+        op["start"], op["end"], op["overshoot"], op["settle_ms"]
     );
     Ok(0)
 }
@@ -368,6 +348,9 @@ fn main() {
     let code = (|| -> Res<i32> {
         let args = Args::parse()?;
         ctx::init_platform();
+        if args.cmd != "review" {
+            fixture::ensure()?;
+        }
         match args.cmd.as_str() {
             "tree" => cmd_tree(&args),
             "run" => cmd_run(&args),

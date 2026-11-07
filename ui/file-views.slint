@@ -1,0 +1,413 @@
+// 文件视图：网格与列表。两者显示同一个条目模型，选择状态来自 Rust（FileItem.selected）。
+// 两种视图都用 ListView 虚拟化：网格按行虚拟化，每行若干格；大目录只实例化可见行。
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+import { FileItem, SortKey } from "types.slint";
+
+// 网格中的一格。图标格位将来用于放置缩略图（Issue #10）。
+component GridCell inherits Rectangle {
+    in property <FileItem> item;
+    in property <int> index;
+    in property <bool> is-cursor;
+    in property <bool> pane-focused;
+    callback pointer(int, bool, bool);
+    callback activate(int);
+
+    border-radius: Theme.radius;
+    background: root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
+    border-width: (root.is-cursor && root.pane-focused) || root.item.selected ? 1px : 0px;
+    border-color: root.is-cursor && root.pane-focused ? Theme.accent : Theme.accent-border;
+    accessible-role: list-item;
+    accessible-label: root.item.name;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.item.selected;
+    accessible-item-index: root.index;
+    accessible-action-default => {
+        root.activate(root.index);
+    }
+
+    ta := TouchArea {
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+            }
+        }
+        double-clicked => {
+            root.activate(root.index);
+        }
+    }
+
+    VerticalLayout {
+        padding: 8px;
+        padding-top: 10px;
+        spacing: 6px;
+
+        thumb := Rectangle {
+            height: 56px * min(Theme.text-scale, 1.5);
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                name: root.item.icon;
+                size: parent.height;
+                line-width: 1.3px;
+                tint: root.item.is-dir ? Theme.folder : Theme.text-secondary;
+                fill-color: root.item.is-dir ? Theme.folder-fill : transparent;
+            }
+        }
+
+        Text {
+            text: root.item.name;
+            color: Theme.text;
+            font-size: Theme.font;
+            horizontal-alignment: center;
+            vertical-alignment: top;
+            wrap: char-wrap;
+            overflow: elide;
+            height: Theme.font * 2.8;
+        }
+    }
+}
+
+export component FileGrid inherits Rectangle {
+    in property <[FileItem]> items;
+    in property <int> cursor-index: -1;
+    in property <bool> pane-focused;
+    callback item-pointer(int, bool, bool);
+    callback item-activate(int);
+    callback background-pointer(bool);
+
+    property <length> pad: 12px;
+    property <length> scrollbar-reserve: 12px;
+    property <length> min-cell-w: 116px * Theme.text-scale;
+    property <length> cell-h: 56px * min(Theme.text-scale, 1.5) + Theme.font * 2.8 + 30px;
+    // 列数与一页的行数，供键盘移动使用
+    out property <int> cols: max(1, floor((root.width - 2 * root.pad - root.scrollbar-reserve) / root.min-cell-w));
+    out property <int> page-rows: max(1, floor((root.height - root.pad) / root.cell-h));
+    property <length> cell-w: (root.width - 2 * root.pad - root.scrollbar-reserve) / root.cols;
+    property <int> row-count: ceil(root.items.length / root.cols);
+
+    pure function row-top(i: int) -> length {
+        return root.pad + floor(i / root.cols) * root.cell-h;
+    }
+
+    // 键盘移动后让光标项可见
+    function ensure-visible(i: int) {
+        if (i < 0) {
+            return;
+        }
+        if (root.row-top(i) + lv.content-y < root.pad) {
+            lv.content-y = root.pad - root.row-top(i);
+            if (lv.content-y > 0) {
+                lv.content-y = 0;
+            }
+        } else if (root.row-top(i) + root.cell-h + lv.content-y > lv.visible-height) {
+            lv.content-y = lv.visible-height - root.row-top(i) - root.cell-h - root.pad / 2;
+        }
+    }
+
+    changed cursor-index => {
+        root.ensure-visible(root.cursor-index);
+    }
+
+    lv := ListView {
+        accessible-label: "文件网格";
+        // 最后一行是填充行：让网格下方的空白处也能接收点击（清空选择）
+        for r in root.row-count + 1: Rectangle {
+            height: r < root.row-count ? (r == 0 ? root.cell-h + root.pad : root.cell-h) : max(0px, root.height - root.row-count * root.cell-h - root.pad);
+
+            TouchArea {
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                        root.background-pointer(e.modifiers.control);
+                    }
+                }
+            }
+
+            for c in (r < root.row-count ? min(root.cols, root.items.length - r * root.cols) : 0): GridCell {
+                x: root.pad + c * root.cell-w + 2px;
+                y: (r == 0 ? root.pad : 0px) + 2px;
+                width: root.cell-w - 4px;
+                height: root.cell-h - 4px;
+                item: root.items[r * root.cols + c];
+                index: r * root.cols + c;
+                is-cursor: root.cursor-index == r * root.cols + c;
+                pane-focused: root.pane-focused;
+                pointer(i, ctrl, shift) => {
+                    root.item-pointer(i, ctrl, shift);
+                }
+                activate(i) => {
+                    root.item-activate(i);
+                }
+            }
+        }
+    }
+}
+
+// 列表表头的一列，点击按该列排序。
+component HeaderCell inherits Rectangle {
+    in property <string> text;
+    in property <SortKey> key;
+    in property <SortKey> sort-key;
+    in property <bool> sort-ascending;
+    in property <bool> align-right: false;
+    callback sort-clicked(SortKey);
+
+    background: ta.has-hover ? Theme.hover-soft : transparent;
+    border-radius: 4px;
+    accessible-role: button;
+    accessible-label: "按" + root.text + "排序";
+    accessible-checkable: true;
+    accessible-checked: root.key == root.sort-key;
+    accessible-action-default => {
+        root.sort-clicked(root.key);
+    }
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 4px;
+        alignment: root.align-right ? end : start;
+
+        Text {
+            text: root.text;
+            color: root.key == root.sort-key ? Theme.text : Theme.text-secondary;
+            font-size: Theme.font-small;
+            font-weight: root.key == root.sort-key ? 600 : 400;
+            vertical-alignment: center;
+        }
+
+        if root.key == root.sort-key: Rectangle {
+            width: Theme.icon-s * 0.8;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                name: root.sort-ascending ? "arrow-up" : "arrow-down";
+                size: Theme.icon-s * 0.8;
+                tint: Theme.text-secondary;
+            }
+        }
+    }
+
+    ta := TouchArea {
+        clicked => {
+            root.sort-clicked(root.key);
+        }
+    }
+}
+
+component ListRow inherits Rectangle {
+    in property <FileItem> item;
+    in property <int> index;
+    in property <bool> is-cursor;
+    in property <bool> pane-focused;
+    in property <length> date-w;
+    in property <length> kind-w;
+    in property <length> size-w;
+    callback pointer(int, bool, bool);
+    callback activate(int);
+
+    border-radius: 6px;
+    background: root.item.selected ? (root.pane-focused ? Theme.accent-soft : Theme.inactive-select) : ta.has-hover ? Theme.hover-soft : transparent;
+    border-width: root.is-cursor && root.pane-focused ? 1px : 0px;
+    border-color: Theme.accent;
+    accessible-role: list-item;
+    accessible-label: root.item.name;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.item.selected;
+    accessible-item-index: root.index;
+    accessible-action-default => {
+        root.activate(root.index);
+    }
+
+    ta := TouchArea {
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                root.pointer(root.index, e.modifiers.control, e.modifiers.shift);
+            }
+        }
+        double-clicked => {
+            root.activate(root.index);
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+
+        Rectangle {
+            width: Theme.icon-s;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                name: root.item.icon;
+                size: Theme.icon-s;
+                line-width: 1.4px;
+                tint: root.item.is-dir ? Theme.folder : Theme.text-secondary;
+                fill-color: root.item.is-dir ? Theme.folder-fill : transparent;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.item.name;
+            color: Theme.text;
+            font-size: Theme.font;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Text {
+            width: root.date-w;
+            text: root.item.date-text;
+            color: Theme.text-secondary;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Text {
+            width: root.kind-w;
+            text: root.item.kind-text;
+            color: Theme.text-secondary;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Text {
+            width: root.size-w;
+            text: root.item.size-text;
+            color: Theme.text-secondary;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            overflow: elide;
+        }
+    }
+}
+
+export component FileList inherits Rectangle {
+    in property <[FileItem]> items;
+    in property <int> cursor-index: -1;
+    in property <bool> pane-focused;
+    in property <SortKey> sort-key;
+    in property <bool> sort-ascending;
+    callback item-pointer(int, bool, bool);
+    callback item-activate(int);
+    callback background-pointer(bool);
+    callback sort-clicked(SortKey);
+
+    property <length> date-w: 140px * Theme.text-scale;
+    property <length> kind-w: 100px * Theme.text-scale;
+    property <length> size-w: 84px * Theme.text-scale;
+    property <length> header-h: Theme.row-h;
+    out property <int> page-rows: max(1, floor((root.height - root.header-h) / Theme.row-h));
+
+    function ensure-visible(i: int) {
+        if (i < 0) {
+            return;
+        }
+        if (i * Theme.row-h + lv.content-y < 0) {
+            lv.content-y = -i * Theme.row-h;
+        } else if ((i + 1) * Theme.row-h + lv.content-y > lv.visible-height) {
+            lv.content-y = lv.visible-height - (i + 1) * Theme.row-h;
+        }
+    }
+
+    changed cursor-index => {
+        root.ensure-visible(root.cursor-index);
+    }
+
+    VerticalLayout {
+        HorizontalLayout {
+            height: root.header-h;
+            padding-left: 14px;
+            padding-right: 26px;
+            spacing: 8px;
+
+            HeaderCell {
+                horizontal-stretch: 1;
+                text: "名称";
+                key: SortKey.name;
+                sort-key: root.sort-key;
+                sort-ascending: root.sort-ascending;
+                sort-clicked(k) => {
+                    root.sort-clicked(k);
+                }
+            }
+
+            HeaderCell {
+                width: root.date-w;
+                text: "修改日期";
+                key: SortKey.modified;
+                sort-key: root.sort-key;
+                sort-ascending: root.sort-ascending;
+                sort-clicked(k) => {
+                    root.sort-clicked(k);
+                }
+            }
+
+            HeaderCell {
+                width: root.kind-w;
+                text: "类型";
+                key: SortKey.kind;
+                sort-key: root.sort-key;
+                sort-ascending: root.sort-ascending;
+                sort-clicked(k) => {
+                    root.sort-clicked(k);
+                }
+            }
+
+            HeaderCell {
+                width: root.size-w;
+                text: "大小";
+                key: SortKey.size;
+                align-right: true;
+                sort-key: root.sort-key;
+                sort-ascending: root.sort-ascending;
+                sort-clicked(k) => {
+                    root.sort-clicked(k);
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.divider;
+        }
+
+        lv := ListView {
+            accessible-label: "文件列表";
+            for i in root.items.length + 1: Rectangle {
+                height: i < root.items.length ? Theme.row-h : max(0px, root.height - root.header-h - 1px - root.items.length * Theme.row-h);
+
+                TouchArea {
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                            root.background-pointer(e.modifiers.control);
+                        }
+                    }
+                }
+
+                if i < root.items.length: ListRow {
+                    x: 6px;
+                    width: parent.width - 18px;
+                    height: parent.height;
+                    item: root.items[i];
+                    index: i;
+                    is-cursor: root.cursor-index == i;
+                    pane-focused: root.pane-focused;
+                    date-w: root.date-w;
+                    kind-w: root.kind-w;
+                    size-w: root.size-w;
+                    pointer(idx, ctrl, shift) => {
+                        root.item-pointer(idx, ctrl, shift);
+                    }
+                    activate(idx) => {
+                        root.item-activate(idx);
+                    }
+                }
+            }
+        }
+    }
+}

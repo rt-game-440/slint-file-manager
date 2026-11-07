@@ -23,13 +23,36 @@ fn element(e: &ElementHandle) -> Value {
     })
 }
 
-/// 主窗口的示例状态（Slint 生成的属性读取器）。元素级无法通用读取的状态（如焦点）通过这类属性导出。
+/// 主窗口的浏览状态（Slint 生成的属性读取器 + 控制器）。元素级无法通用读取的状态（如焦点）通过这类属性导出。
+/// 路径只记录相对样例目录的部分，使不同机器上的记录可比较。
 pub fn extras(ctx: &Ctx) -> Value {
+    let w = &ctx.win;
+    let root = crate::fixture::root();
+    let loc = ctx.ctl.location().map(|p| match p.strip_prefix(&root) {
+        Ok(rel) => format!("<样例目录>\\{}", rel.display())
+            .trim_end_matches('\\')
+            .to_string(),
+        Err(_) => p.display().to_string(),
+    });
     json!({
-        "click_count": ctx.win.get_click_count(),
-        "panel_open": ctx.win.get_panel_open(),
-        "key_focused": ctx.win.get_key_focused(),
-        "list_scroll_y": r3(ctx.win.get_list_scroll_y()),
+        "location": loc,
+        "content_state": format!("{:?}", w.get_content_state()),
+        "item_count": w.get_item_count(),
+        "selected_count": w.get_selected_count(),
+        "selected": ctx.ctl.selected_names(),
+        "cursor_index": w.get_cursor_index(),
+        "view": format!("{:?}", w.get_view()),
+        "sort_key": format!("{:?}", w.get_sort_key()),
+        "sort_ascending": w.get_sort_ascending(),
+        "focus_area": w.get_focus_area().to_string(),
+        "editing_address": w.get_editing_address(),
+        "can_back": w.get_can_back(),
+        "can_forward": w.get_can_forward(),
+        "can_up": w.get_can_up(),
+        "status_text": w.get_status_text().to_string(),
+        "status_message": w.get_status_message().to_string(),
+        "pending_loads": ctx.ctl.pending(),
+        "opened": ctx.opened.borrow().iter().map(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).collect::<Vec<_>>(),
     })
 }
 

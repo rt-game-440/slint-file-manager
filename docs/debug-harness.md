@@ -8,18 +8,19 @@
 
 | 目的 | 命令 | 产物 |
 | --- | --- | --- |
-| 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario idle --out artifacts/tree.json` | JSON |
-| 交互脚本（查找、点击、按键、滚动、断言，重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json` |
+| 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario grid-selected --out artifacts/tree.json` | JSON |
+| 交互脚本（真实浏览流程：导航、地址输入、选择、视图／排序、打开、过期结果；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json` |
 | 截图（100% 与 150%） | `powershell -File scripts/harness.ps1 snap` | `artifacts/snapshots/current/*.png` + `.json` |
 | 截图并与基线比较，输出差异图 | `powershell -File scripts/harness.ps1 compare` | `artifacts/snapshots/diff/*.diff.png`、`compare-report.json` |
 | 更新基线（人工确认后提交） | `powershell -File scripts/harness.ps1 bless` | `tests/baselines/` |
 | 动画逐帧采集 | `powershell -File scripts/harness.ps1 frames` | `artifacts/frames/<场景>_<尺寸>_<缩放>/` |
 | 生成 3 级审阅清单 | `powershell -File scripts/harness.ps1 review` | `artifacts/review/REVIEW.md` |
-| 真实窗口帧耗时日志 | `target\release\slint-file-manager.exe --debug-perf --demo-autoplay --smoke-ms=4000` | `logs/yyyy-MM-dd HH-mm-ss.log` |
-| 真实窗口截图（补充手段） | `powershell -File scripts/capture-window.ps1` | `artifacts/real/<时间>/` |
+| 真实窗口帧耗时日志 | `target\release\slint-file-manager.exe --debug-perf --open=目录 --smoke-ms=4000` | `logs/yyyy-MM-dd HH-mm-ss.log` |
+| 进入目录耗时基准（60／1000／10000 个文件） | `powershell -File scripts/perf-browse.ps1` | `artifacts/perf/browse-<时间>.json` |
+| 真实窗口截图（补充手段） | `powershell -File scripts/capture-window.ps1 [-Open 目录]` | `artifacts/real/<时间>/` |
 | 观测框架整体验证 | `powershell -File scripts/verify-harness.ps1` | 退出码 |
 
-`scripts/harness.ps1` 会先以 `--features harness` 构建 `harness` 程序（发布产物不含它，也不含调试信息），再转发参数。常用选项：`--size 960x600`、`--scales 1,1.5`、`--scenarios idle,panel-open`、`--scenario panel-toggle`、`--interval 16`、`--duration 600`、`--out 目录`、`--fixture tests/fixtures/basic`。
+`scripts/harness.ps1` 会先以 `--features harness` 构建 `harness` 程序（发布产物不含它，也不含调试信息），再转发参数。常用选项：`--size 1100x720`（默认，与产品初始窗口一致）、`--scales 1,1.5`、`--scenarios grid-selected,loading`、`--scenario loading-appear`、`--interval 16`、`--duration 600`、`--out 目录`。
 
 ## 每种手段能证明什么，不能证明什么
 
@@ -34,31 +35,40 @@
 ### 离屏截图与产品默认渲染器的差异
 
 - 离屏截图固定使用 **Slint 软件渲染器**（测试后端内置，`i-slint-renderer-software`），与产品默认的 **femtovg（OpenGL）** 不同：抗锯齿、圆角边缘、文字光栅化都会有细微差别；不能把两者逐像素比较。
-- 离屏窗口不跟随系统主题；真实窗口在系统深色模式下，未显式指定颜色的 `Text` 会变成白色。所以**界面里的文字、背景都要显式写颜色**（本仓库示例已这样做）。
+- 离屏窗口不跟随系统主题；真实窗口在系统深色模式下，未显式指定颜色的 `Text` 会变成白色。所以**界面里的文字、背景都要显式写颜色**（本仓库界面已这样做，`Palette.color-scheme` 也固定为浅色）。
 - 软件渲染器使用系统字体。字体清单计入“环境指纹”，见下节。
 - 真实窗口与离屏有差异时，用 `scripts/capture-window.ps1` 看真实窗口。
 
 ## 无头驱动与元素标识约定
 
-测试后端 = `i-slint-backend-testing`（模拟时钟、无事件循环、软件渲染器）。窗口由 `Ctx::new(尺寸, 缩放)` 创建：固定逻辑尺寸、缩放比例，不读取用户真实目录；夹具目录固定为 `tests/fixtures/basic`（目前界面尚未接入目录列表，harness 只校验存在并在 `tree` 的 `meta.fixture` 里记录文件数；后续列表界面接入时从这里传入）。
+测试后端 = `i-slint-backend-testing`（模拟时钟、无事件循环、软件渲染器）。窗口由 `Ctx::new(尺寸, 缩放)` 或 `Ctx::open(尺寸, 缩放, Opts)`（起始目录、文字缩放、是否完成首次读取）创建，与产品共用 `app::wire` 接线，区别只在环境：
+
+- **目录读取**用 `Loader::Manual`：导航只把请求排队，调用 `Ctx::pump()` 才在当前线程执行并应用结果。因此“加载中”状态、连续导航后过期结果被丢弃都能确定地复现。
+- **打开文件**用 `Opener::Record`：只把路径记到 `Ctx::opened`，不启动任何程序。
+- **样例目录**（`src/bin/harness/fixture.rs`）：每次 harness 启动（`review` 除外）在 `%TEMP%\sfm-harness\样例目录` 重新生成，不读取用户真实目录。内容：文件夹“照片”（12 张 WebP 占位）、“空文件夹”、“无权限”（用 `icacls` 拒绝 Everyone 列目录，只作用于本夹具，下次生成前 `/reset`）、四层长名称子目录；根目录 12 张图片、中文／自然排序名（报告2、报告10）、长中文名 PDF、长英文名 TXT、各类扩展名、一个隐藏文件（不应显示）。名称、大小、修改时间全部固定，内容是占位字节。
+- 路径含用户名、日期按本地时区显示，所以样例目录绝对路径与时区写入截图指纹；换机器得到 `env-mismatch`，属正常。
+- 两个 harness 进程不要同时运行（会同时重建样例目录）。
+- 模拟时钟在每个窗口创建前对齐到 3600ms 的整数倍，保证 `animation-tick()` 驱动的循环动画（加载进度条）在不同窗口中相位一致。
 
 **标识约定（后续界面工单沿用）：**
 
-1. 每个需要被查找的元素写 id，格式 kebab-case，按“区域-用途”命名，如 `demo-toggle-button`、`demo-panel`。查找时用限定名 `MainWindow::demo-toggle-button`（组件名::id）。
-2. 可交互元素**同时**设置 `accessible-role` 与 `accessible-label`（用户可读的中文名，如“切换示例面板”）。优先用 `accessible-label` 查找：它也是无障碍名称，一处定义两处使用。
+1. 每个需要被查找的元素写 id，格式 kebab-case，按“区域-用途”命名，如 `sort-button`、`loading-indicator`。查找时用限定名 `BrowserPane::loading-indicator`（组件名::id）。
+2. 可交互元素**同时**设置 `accessible-role` 与 `accessible-label`（用户可读的中文名，如“后退”“排序方式”）。优先按“角色 + 标签”查找（`Ctx::find`、`Ctx::button`、`Ctx::item`）：`Text` 元素会把自身文字当作标签，只按标签查常常不唯一。
+   - 当前界面的标识：按钮“后退／前进／上一级／刷新／地址栏／排序方式／网格视图／列表视图／双栏（禁用）／最小化／最大化（最大化后为“还原”）／关闭”，侧栏按钮“主目录”（其余入口禁用），路径分段“转到 <名称>”，表头“按名称排序／按修改日期排序／按类型排序／按大小排序”，排序菜单行“名称／修改日期／类型／大小／递增／递减”，状态面板按钮“重试／用默认应用打开”，文件项为 `list-item` 角色、标签即文件名（`accessible-item-selected` 表示选中），地址输入框“地址”，标签“浏览标签 <标题>”，加载提示 `progress-indicator`“正在加载”，状态面板 `groupbox` 标签即标题（如“此文件夹为空”）。
+   - 网格与列表都虚拟化，只有可见行能被找到；需要操作屏幕外的项时先滚动或用键盘移动。
 3. 元素级状态用 Slint 的 `accessible-*` 属性表达（`accessible-checked`、`accessible-value`、`accessible-enabled` 等），元素树会导出。
-4. 元素树无法通用读取的状态（如键盘焦点）：在窗口根组件上加 `out property`（如 `key-focused`），由 `dump::extras` 导出。新界面要导出的状态在那里追加。
-5. 元素树导出（`tree`）的 JSON 顶层为 `meta`（窗口尺寸、缩放、渲染器、夹具）、`extras`（根组件导出的状态属性，如 `click_count`、`panel_open`、`key_focused`、`list_scroll_y`）、`elements`（元素数组）。每个元素的字段：`index`、`id`（带组件名前缀，如 `MainWindow::demo-toggle-button`）、`type`、`role`、`label`、`value`、`enabled`、`checked`、`selected`、`expanded`、`x`、`y`、`w`、`h`（窗口内逻辑像素）、`opacity`、`visible`；取不到的值为 `null`。
+4. 元素树无法通用读取的状态（如键盘焦点）：在窗口根组件上加 `out property`（如 `focus-area`），由 `dump::extras` 导出。新界面要导出的状态在那里追加。
+5. 元素树导出（`tree`）的 JSON 顶层为 `meta`（窗口尺寸、缩放、渲染器、夹具）、`extras`（浏览状态：`location`（样例目录内显示为 `<样例目录>\…`）、`content_state`、`item_count`、`selected_count`、`selected`、`cursor_index`、`view`、`sort_key`、`sort_ascending`、`focus_area`（content／address／none）、`editing_address`、`can_back`／`can_forward`／`can_up`、`status_text`、`status_message`、`pending_loads`、`opened`）、`elements`（元素数组）。每个元素的字段：`index`、`id`（带组件名前缀，如 `BrowserPane::loading-indicator`）、`type`、`role`、`label`、`value`、`enabled`、`checked`、`selected`、`expanded`、`x`、`y`、`w`、`h`（窗口内逻辑像素）、`opacity`、`visible`；取不到的值为 `null`。
 6. 元素树按深度优先先序平铺，没有层级字段；`visible` 恒为 true（不可见元素遍历不到）；`id` 为空表示未命名元素。
 
-输入模拟：`ElementHandle::mock_single_click`（点击，含 50ms 模拟时间）、`Ctx::key`（按键）、`ElementHandle::scroll`（滚动）。示例脚本见 `src/bin/harness/scenarios.rs` 的 `interaction`。
+输入模拟：`Ctx::click`（`mock_single_click`，含 50ms 模拟时间）、`Ctx::ctrl_click`／`shift_click`（先发送修饰键按下事件，指针事件的 modifiers 来自窗口的修饰键状态）、`Ctx::double_click`（两次单击）、`Ctx::click_at`／`click_right_edge`（点元素中心以外的位置，如地址栏右侧空白）、`Ctx::key`／`special(Key, 修饰键)`、`Ctx::type_text`（向焦点文本框逐字输入）、`Ctx::enter_address`、`Ctx::pump`（完成排队的目录读取）、`ElementHandle::scroll`。完整流程见 `src/bin/harness/scenarios.rs` 的 `interaction`。
 
 ## 截图、基线与环境指纹
 
 - 差异图文件名：`<截图文件名去掉 .png>.diff.png`，位于 `artifacts/snapshots/diff/`；`compare` 发现差异时会在输出行末打印路径，详细数值在同目录 `compare-report.json`。
-- 文件名：`<场景>_<逻辑宽>x<逻辑高>_<缩放百分比>.png`，如 `panel-open_960x600_150.png`；同名 `.json` 记录物理尺寸、缩放与环境指纹。
+- 文件名：`<场景>_<逻辑宽>x<逻辑高>_<缩放百分比>.png`，如 `grid-selected_1100x720_150.png`；同名 `.json` 记录物理尺寸、缩放与环境指纹。
 - **稳定性自检**：每个场景用两个全新窗口渲染两次，逐字节比较；不一致标记 `stable: false`，命令退出码 3，**不得**把这种截图当回归信号。
-- **环境指纹**：渲染器、Slint 版本、操作系统、系统字体清单哈希。基线与当前指纹不同且像素有差异时，状态为 `env-mismatch`（退出码 2，“无法判断”），而不是 `regression`。换机器或装了新字体后，先在新环境 `bless`。
+- **环境指纹**：渲染器、Slint 版本、操作系统、系统字体清单哈希、样例目录绝对路径、本地时区偏移。基线与当前指纹不同且像素有差异时，状态为 `env-mismatch`（退出码 2，“无法判断”），而不是 `regression`。换机器或装了新字体后，先在新环境 `bless`。
 - 比较参数：`--channel-threshold 2`（单通道差不超过 2 视为相同像素）、`--max-ratio 0.0005`（不同像素占比上限）。差异图中红色为差异像素，其余为压淡后的基线。
 - `compare` 退出码：0 一致（含容差内）；1 回归；2 缺基线或环境不同；3 截图不稳定。
 
@@ -67,8 +77,7 @@
 | 目录 | 内容 | 入库 |
 | --- | --- | --- |
 | `tests/baselines/` | 基线 PNG 与指纹 JSON | **入库** |
-| `tests/fixtures/` | 夹具目录 | **入库** |
-| `artifacts/`（含 `snapshots/`、`frames/`、`state/`、`review/`、`real/`、`verify/`） | 当次产物 | 忽略 |
+| `artifacts/`（含 `snapshots/`、`frames/`、`state/`、`review/`、`real/`、`verify/`、`perf/`） | 当次产物 | 忽略 |
 | `logs/` | 真实窗口帧耗时日志 | 忽略 |
 
 ### 基线更新流程
@@ -87,7 +96,7 @@
 - `contact-sheet.png`：联系表，每格上方左为帧号、右为毫秒。
 - `anim.gif`：半尺寸动图，供 frame-inspect 和 3 级审阅使用。
 
-默认值：`--interval 16`（毫秒）、`--duration 600`（毫秒）。动画时长超过 600ms 时要加大 `--duration`，否则稳定时间会被截断。输出目录默认 `artifacts/frames/<场景>_<尺寸>_<缩放>/`，**重复采集会覆盖**；要对比改动前后，先用 `--out` 指到不同目录。目前 `TRACKED` 只跟踪 `demo-panel` 一个元素。
+默认值：`--interval 16`（毫秒）、`--duration 600`（毫秒）。动画时长超过 600ms 时要加大 `--duration`，否则稳定时间会被截断。输出目录默认 `artifacts/frames/<场景>_<尺寸>_<缩放>/`，**重复采集会覆盖**；要对比改动前后，先用 `--out` 指到不同目录。目前 `TRACKED` 只跟踪 `BrowserPane::loading-indicator`（动画场景 `loading-appear`：进入目录但读取未完成，提示延迟 150ms 后 180ms 淡入）。
 
 核对方法：看 `summary`（时长≈稳定时间、过冲量、终态），再看联系表确认视觉。同一动画重复采集产物逐字节一致（`verify-harness.ps1` 会检查）。改了 `animate` 的 `duration` 或 `easing`，`summary.settle_ms`、过冲和曲线都会变。
 
@@ -95,7 +104,7 @@
 
 - **模拟时钟只验证动画定义本身，不能证明真实运行时不卡顿。**真实流畅度看帧耗时日志。
 - 属性必须在变化前被读取过，动画才会从旧值开始；harness 在触发前先渲染一帧，真实窗口首帧起同理。自己写新的动画场景时保留这一步（`frames::capture` 已包含）。
-- 新增被跟踪的元素：在 `TRACKED` 里追加 `(列名前缀, "MainWindow::元素id")`。
+- 新增被跟踪的元素：在 `TRACKED` 里追加 `(列名前缀, "组件名::元素id")`。
 
 ## 真实窗口帧耗时与运行日志
 
@@ -104,19 +113,21 @@
 - 行格式：`HH:mm:ss.fff +启动后毫秒 内容`。行首是本机时间，可与 `capture-window.ps1` 的 `captures.txt` 或录屏时间对应。
 - 内容：`start`、`frame n= interval_ms= render_ms= animating= dropped=`、`event <名称>`、`summary`（帧数、p50、p95、最大间隔、掉帧数）。
 - 掉帧：动画期间相邻两帧间隔超过 25ms（`SFM_PERF_DROP_MS` 可改）。每次动画的第一帧不判定。
-- 已有事件：`animation-start`、`animation-end`、`scroll`。进入目录等事件在对应界面工单里用 `perf::event("名称", Some(数值))` 追加。
+- 已有事件：`animation-start`、`animation-end`、`scroll`；进入目录：`dir-loaded-us`（自导航请求起，读取结果回到界面线程）、`dir-entries`（条目数）、`dir-ready-us`（新内容第一帧渲染完成，用 `perf::mark_next_frame` 在下一帧记录），基准模式额外有 `bench-iter`。
 - 隐私：`perf::event` 只接受静态字符串和一个整数，写不进路径、文件名、图像内容。新增事件保持这一约束。
-- 复现：`--demo-autoplay` 每 500ms 自动切换示例面板，`--smoke-ms=N` 运行 N 毫秒后自动退出。
+- 复现：`--open=目录` 指定起始目录，`--smoke-ms=N` 运行 N 毫秒后自动退出；`--bench-enter=目录 [--bench-runs=10]` 每 400ms 在目录与其上级之间切换，每次进入前记录 `bench-iter`（隐含 `--debug-perf`），`scripts/perf-browse.ps1` 据此汇总。
+- Issue #22 的示例界面（切换面板、示例列表、`--demo-autoplay`）已在 Issue #4 随真实浏览界面一起移除；harness 的场景、基线、交互脚本全部改为真实界面。
 
 ## 新增场景
 
-- 静态场景：在 `src/bin/harness/scenarios.rs` 的 `STATIC` 追加 `Scenario`（`setup` 里用 `Ctx` 的点击、按键、滚动、推进时间把界面带到目标状态，并写好“内容”“预期效果”供审阅清单使用），然后 `bless`。
+- 静态场景：在 `src/bin/harness/scenarios.rs` 的 `STATIC` 追加 `Scenario`（可设文字缩放 `text_scale`、是否完成首次读取 `load`；`setup` 里用 `Ctx` 的点击、按键、`pump`、推进时间把界面带到目标状态，并写好“内容”“预期效果”供审阅清单使用），然后 `bless`。需要新的文件形态时改 `fixture.rs`，并同步 `root_visible_count`。
 - 动画场景：在 `ANIM` 追加 `AnimScenario`（`start` 触发动画）。
 - 不要为尚不存在的界面预建抽象；界面出现后再在这些入口上扩展。
 
 ## 已知限制与排错
 
 - 内部 crate `i-slint-backend-testing` 不遵循 semver，`Cargo.toml` 里固定 `=1.18.1`，与 `slint` 同步升级。
-- 测试后端的 `set_size` 按缩放 1 换算，`Ctx::new` 已绕开（物理尺寸与逻辑尺寸分别设置）。不要在 `Ctx::new` 之外改窗口尺寸。
+- 测试后端的 `set_size` 按缩放 1 换算，`Ctx::open` 已绕开（物理尺寸与逻辑尺寸分别设置）。不要在 `Ctx::open` 之外改窗口尺寸。
+- `capture-window.ps1` 在本机对无边框主窗口抓屏时曾抓到窗口下方的其他桌面内容（2026-11-08，原因未查明，可能是窗口尚未上屏或未成功置顶）。抓到的图必须先目视确认，含私人内容立即删除；真实窗口外观改由人工验收。
 - 元素树依赖调试信息，由 `build.rs` 在 `harness` 特性下开启；用默认特性构建的程序查不到元素。
 - Windows 11 尚未验证（见 ADR 0008）；本框架同样只在 Windows 10 上验证过。
