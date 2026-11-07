@@ -121,6 +121,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 tries.set(tries.get() + 1);
                 let done = w.upgrade().is_some_and(|w| app::attach_drop(&c, &w));
                 if done {
+                    // 最大化让出自动隐藏任务栏的 1 像素（Issue #45）
+                    if let Some(h) = w
+                        .upgrade()
+                        .and_then(|w| slint_file_manager::dragdrop::hwnd_of(w.window()))
+                    {
+                        render::keep_taskbar_reachable(h);
+                    }
                     t.stop();
                 } else if tries.get() >= 40 {
                     t.stop();
