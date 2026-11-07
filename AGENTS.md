@@ -22,5 +22,12 @@ Rust + Slint 工程，仅支持 Windows（见 ADR 0001、0008）。版本、渲�
 - 定向验证（fmt、clippy、构建、`--smoke` 启动退出）：`powershell -File scripts/verify.ps1`
 - 生成分发包（`dist/*.zip`）：`powershell -File scripts/dist.ps1`
 - 手动冒烟：`target\release\slint-file-manager.exe --smoke`（约 1 秒后自动退出，退出码 0）
+- 调试观测框架（无头驱动、截图对比、逐帧动画、帧耗时日志）：详见 [docs/debug-harness.md](docs/debug-harness.md)。
+  - 元素树 / 交互脚本：`powershell -File scripts/harness.ps1 tree|run`
+  - 截图对比基线 / 更新基线：`... harness.ps1 compare` / `... harness.ps1 bless`（退出码 0 一致、1 回归、2 无法判断、3 不稳定）
+  - 动画逐帧采集（帧图、曲线、联系表、GIF）：`... harness.ps1 frames`
+  - 真实窗口帧耗时日志：`slint-file-manager.exe --debug-perf`（默认关闭，写 `logs/`）；真实窗口截图：`scripts/capture-window.ps1`
+  - 整体验证：`powershell -File scripts/verify-harness.ps1`
+  - 界面元素需按手册的标识约定写 id 与 `accessible-label`；文字与背景要显式写颜色。
 - 视觉参考：仅 [A2](docs/concepts/file-manager/concept.md)；被淘汰的概念图不入库，不得当作依据。
 - Windows 11 尚无环境，兼容性未验证。

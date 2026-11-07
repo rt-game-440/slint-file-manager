@@ -4021,6 +4021,11 @@ dependencies = [
 name = "slint-file-manager"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "gif",
+ "i-slint-backend-testing",
+ "png",
+ "serde_json",
  "slint",
  "slint-build",
 ]

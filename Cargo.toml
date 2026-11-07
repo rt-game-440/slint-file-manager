@@ -3,8 +3,32 @@ name = "slint-file-manager"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# 调试观测框架（无头驱动、截图、逐帧采集）。默认关闭，不进入发布产物。
+harness = [
+    "dep:i-slint-backend-testing",
+    "dep:png",
+    "dep:serde_json",
+    "dep:gif",
+]
+
 [dependencies]
 slint = "1.18.1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# 内部测试后端，必须与 slint 同版本（见 docs/debug-harness.md）
+i-slint-backend-testing = { version = "=1.18.1", optional = true, features = ["renderer-software"] }
+png = { version = "0.18", optional = true }
+serde_json = { version = "1", optional = true }
+gif = { version = "0.14", optional = true }
 
 [build-dependencies]
 slint-build = "1.18.1"
+
+[[bin]]
+name = "slint-file-manager"
+path = "src/main.rs"
+
+[[bin]]
+name = "harness"
+path = "src/bin/harness/main.rs"
+required-features = ["harness"]
