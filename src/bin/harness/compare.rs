@@ -41,6 +41,9 @@ pub fn fingerprint() -> Value {
         "slint": "1.18.1",
         "os": std::env::consts::OS,
         "fonts": fonts_fingerprint(),
+        // 样例目录的绝对路径（含用户名）出现在地址栏，修改日期按本地时区显示：两者不同则截图必然不同
+        "fixture_root": crate::fixture::root().display().to_string(),
+        "utc_offset_s": chrono::Local::now().offset().local_minus_utc(),
     })
 }
 

@@ -1,4 +1,4 @@
-﻿# 定向验证：格式、clippy、构建、--smoke 启动退出。编译并行度上限 6。
+﻿# 定向验证：格式、clippy、浏览核心单元测试、构建、--smoke 启动退出。编译并行度上限 6。
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 
@@ -10,6 +10,7 @@ function Step($name, [scriptblock]$cmd) {
 
 Step 'cargo fmt --check' { cargo fmt --check }
 Step 'cargo clippy' { cargo clippy --locked --jobs 6 -- -D warnings }
+Step 'cargo test --lib' { cargo test --lib --locked --jobs 6 }
 Step 'cargo build --release' { cargo build --release --locked --jobs 6 }
 
 Write-Host '== 冒烟：启动并自动退出（15 秒超时）'

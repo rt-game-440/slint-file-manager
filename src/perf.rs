@@ -25,6 +25,8 @@ struct Inner {
     dropped: u64,
     intervals: Vec<f64>,
     drop_ms: f64,
+    /// 等待下一帧渲染完成后记录的事件：(名称, 起点)
+    pending: Vec<(&'static str, Instant)>,
 }
 
 static LOG: OnceLock<Mutex<Inner>> = OnceLock::new();
@@ -63,6 +65,7 @@ pub fn init(window: &slint::Window) -> std::io::Result<PathBuf> {
         dropped: 0,
         intervals: Vec::new(),
         drop_ms,
+        pending: Vec::new(),
     };
     if LOG.set(Mutex::new(inner)).is_err() {
         return Ok(path); // 同一进程只初始化一次，复用同一文件
@@ -122,7 +125,25 @@ fn frame(before: Instant) {
             "frame n={n} interval_ms={iv} render_ms={render_ms:.2} animating={} dropped={}",
             animating as u8, dropped as u8
         ));
+        for (name, since) in std::mem::take(&mut l.pending) {
+            let us = (now - since).as_micros() as i64;
+            l.line(&format!("event {name} value={us}"));
+        }
+        if n % 64 == 0 {
+            let _ = l.out.flush();
+        }
     });
+}
+
+/// 调试日志是否开启。
+pub fn enabled() -> bool {
+    LOG.get().is_some()
+}
+
+/// 在下一帧渲染完成时记录 `event 名称 value=微秒`（自 `since` 起）。用于“进入目录到可操作”这类
+/// 需要以画面实际更新为终点的计时。日志关闭时直接返回。
+pub fn mark_next_frame(name: &'static str, since: Instant) {
+    with(|l| l.pending.push((name, since)));
 }
 
 /// 记录关键界面事件。名称必须是静态字符串，数值可选。

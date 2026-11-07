@@ -1,0 +1,27 @@
+// 界面与 Rust 之间共享的数据类型。
+
+// 内容区状态：加载中、正常、空目录与几类错误要能区分。
+export enum ContentState { loading, ready, empty, not-found, access-denied, not-a-folder, failed }
+
+export enum ViewMode { grid, list }
+
+export enum SortKey { name, modified, size, kind }
+
+// 键盘移动方向（由 Rust 计算目标项）
+export enum NavKey { left, right, up, down, home, end, page-up, page-down }
+
+// 文件列表中的一项。所有文字来自真实元数据。
+export struct FileItem {
+    name: string,
+    kind-text: string,
+    size-text: string,
+    date-text: string,
+    is-dir: bool,
+    icon: string,
+    selected: bool,
+}
+
+// 路径导航中的一段；对应的完整路径保存在 Rust 侧。
+export struct Crumb {
+    label: string,
+}

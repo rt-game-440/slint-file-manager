@@ -1,9 +1,10 @@
-﻿# 真实窗口截图入口（补充手段）：以 --debug-perf --demo-autoplay 启动 release 程序，
+﻿# 真实窗口截图入口（补充手段）：以 --debug-perf 启动 release 程序（-Open 指定起始目录，默认主目录），
 # 按间隔对窗口区域截屏，并把每张图的本机时间（HH:mm:ss.fff）写入 captures.txt，
 # 与 logs/*.log 行首的时间对应，用于复现只在真实渲染下出现的问题。
-# 用法：powershell -File scripts/capture-window.ps1 [-Count 6] [-IntervalMs 250] [-RunMs 4000]
+# 用法：powershell -File scripts/capture-window.ps1 [-Open 目录] [-Count 6] [-IntervalMs 250] [-RunMs 4000]
 # 需要交互式桌面，且窗口不被遮挡。截图用 GDI 抓屏，受显示器缩放影响；它不是确定性截图，不能用于基线比较。
 param(
+    [string]$Open = '',
     [int]$Count = 6,
     [int]$IntervalMs = 250,
     [int]$RunMs = 4000
@@ -48,7 +49,9 @@ $stamp = Get-Date -Format 'yyyy-MM-dd HH-mm-ss'
 $out = Join-Path (Get-Location) "artifacts\real\$stamp"
 New-Item -ItemType Directory -Force $out | Out-Null
 
-$p = Start-Process $exe -ArgumentList "--debug-perf", "--demo-autoplay", "--smoke-ms=$RunMs" -PassThru
+$argv = @("--debug-perf", "--smoke-ms=$RunMs")
+if ($Open) { $argv += "--open=`"$Open`"" }
+$p = Start-Process $exe -ArgumentList $argv -PassThru
 $deadline = (Get-Date).AddSeconds(10)
 $hwnd = [IntPtr]::Zero
 # 等到窗口面积大于 200x200（排除启动时的小辅助窗口）

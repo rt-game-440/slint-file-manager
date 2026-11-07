@@ -5,12 +5,16 @@ use i_slint_backend_testing::{
     mock_elapsed_time,
 };
 use slint::ComponentHandle;
-use slint::platform::{PointerEventButton, WindowEvent};
-use slint_file_manager::{MainWindow, app};
+use slint::platform::{Key, PointerEventButton, WindowEvent};
+use slint_file_manager::app::{self, Controller, Env, Loader, Opener};
+use slint_file_manager::{MainWindow, Theme};
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::Duration;
 
 pub type Res<T> = Result<T, Box<dyn Error>>;
@@ -94,16 +98,59 @@ impl Image {
     }
 }
 
+/// 模拟时钟对齐周期（毫秒），需为界面中循环动画周期的整数倍
+const CLOCK_ALIGN: u64 = 3600;
+
 pub struct Ctx {
     pub win: MainWindow,
+    /// 浏览控制器：手动加载模式，调用 [`Ctx::pump`] 才执行目录读取
+    pub ctl: Rc<Controller>,
+    /// “用默认应用打开”的记录（harness 不启动任何程序）
+    pub opened: Rc<RefCell<Vec<PathBuf>>>,
     t0: u64,
 }
 
+/// 窗口选项：起始目录、文字缩放、是否立即完成首次加载。
+pub struct Opts {
+    pub start: PathBuf,
+    pub text_scale: f32,
+    pub load: bool,
+}
+
+impl Default for Opts {
+    fn default() -> Opts {
+        Opts {
+            start: crate::fixture::root(),
+            text_scale: 1.0,
+            load: true,
+        }
+    }
+}
+
 impl Ctx {
-    /// 以逻辑尺寸和缩放比例创建主窗口。顺序固定：先显示，再设缩放，再设尺寸。
+    /// 以样例目录为起点打开主窗口并完成首次加载。
     pub fn new(size: (u32, u32), scale: f32) -> Res<Ctx> {
+        Ctx::open(size, scale, Opts::default())
+    }
+
+    /// 以逻辑尺寸和缩放比例创建主窗口。顺序固定：先显示，再设缩放，再设尺寸。
+    pub fn open(size: (u32, u32), scale: f32, o: Opts) -> Res<Ctx> {
+        // 把模拟时钟对齐到固定周期：animation-tick() 驱动的循环动画（加载进度条）在同一进程内
+        // 先后创建的窗口里相位一致，截图才稳定
+        let t = get_mocked_time();
+        mock_elapsed_time(Duration::from_millis(CLOCK_ALIGN - t % CLOCK_ALIGN));
         let win = MainWindow::new()?;
-        app::wire(&win);
+        win.global::<Theme>().set_text_scale(o.text_scale);
+        let opened = Rc::new(RefCell::new(Vec::new()));
+        let ctl = app::wire(
+            &win,
+            Env {
+                start: Some(o.start),
+                home: Some(crate::fixture::root()),
+                loader: Loader::Manual(RefCell::new(VecDeque::new())),
+                opener: Opener::Record(opened.clone()),
+            },
+        );
         win.show()?;
         win.window()
             .dispatch_event(WindowEvent::ScaleFactorChanged {
@@ -119,10 +166,23 @@ impl Ctx {
             size: slint::LogicalSize::new(size.0 as f32, size.1 as f32),
         });
         mock_elapsed_time(Duration::from_millis(1));
-        Ok(Ctx {
+        let c = Ctx {
             win,
+            ctl,
+            opened,
             t0: get_mocked_time(),
-        })
+        };
+        if o.load {
+            c.pump();
+        }
+        Ok(c)
+    }
+
+    /// 执行排队的目录读取并推进一点时间让界面更新；返回执行的请求数。
+    pub fn pump(&self) -> usize {
+        let n = self.ctl.pump();
+        self.advance(16);
+        n
     }
 
     /// 推进模拟时钟（驱动动画、定时器、变更回调）。
@@ -135,14 +195,7 @@ impl Ctx {
         get_mocked_time() - self.t0
     }
 
-    pub fn by_label(&self, label: &str) -> Res<ElementHandle> {
-        unique(
-            ElementHandle::find_by_accessible_label(&self.win, label).collect(),
-            label,
-        )
-    }
-
-    /// `id` 形如 `MainWindow::demo-panel`。
+    /// `id` 形如 `BrowserPane::loading-indicator`。
     pub fn by_id(&self, id: &str) -> Res<ElementHandle> {
         unique(
             ElementHandle::find_by_element_id(&self.win, id).collect(),
@@ -155,15 +208,81 @@ impl Ctx {
         e.mock_single_click(PointerEventButton::Left);
     }
 
-    /// 发送一次按键（按下并释放）。特殊键用 `slint::platform::Key` 转成字符串。
+    /// 在窗口逻辑坐标处单击（用于点击元素中心以外的位置，例如地址栏右侧空白）。
+    pub fn click_at(&self, x: f32, y: f32) {
+        let position = slint::LogicalPosition::new(x, y);
+        let w = self.win.window();
+        w.dispatch_event(WindowEvent::PointerMoved { position });
+        w.dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        self.advance(50);
+        w.dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    }
+
+    /// 在元素内距右边缘 `inset` 处单击。
+    pub fn click_right_edge(&self, e: &ElementHandle, inset: f32) {
+        let (p, s) = (e.absolute_position(), e.size());
+        self.click_at(p.x + s.width - inset, p.y + s.height / 2.0);
+    }
+
+    /// 按住修饰键执行 `f`（Slint 从窗口的修饰键状态得到指针事件的 modifiers）。
+    pub fn with_mods(&self, mods: &[Key], f: impl FnOnce()) {
+        for m in mods {
+            self.press(&key_text(*m));
+        }
+        f();
+        for m in mods.iter().rev() {
+            self.release(&key_text(*m));
+        }
+    }
+
+    pub fn ctrl_click(&self, e: &ElementHandle) {
+        self.with_mods(&[Key::Control], || self.click(e));
+    }
+
+    pub fn shift_click(&self, e: &ElementHandle) {
+        self.with_mods(&[Key::Shift], || self.click(e));
+    }
+
+    /// 双击：两次单击（各含 50ms 按住），间隔在系统双击时间内。
+    pub fn double_click(&self, e: &ElementHandle) {
+        self.click(e);
+        self.click(e);
+    }
+
+    fn press(&self, t: &str) {
+        self.win
+            .window()
+            .dispatch_event(WindowEvent::KeyPressed { text: t.into() });
+    }
+
+    fn release(&self, t: &str) {
+        self.win
+            .window()
+            .dispatch_event(WindowEvent::KeyReleased { text: t.into() });
+    }
+
+    /// 发送一次按键（按下并释放）。
     pub fn key(&self, text: &str) {
-        let t: slint::SharedString = text.into();
-        self.win
-            .window()
-            .dispatch_event(WindowEvent::KeyPressed { text: t.clone() });
-        self.win
-            .window()
-            .dispatch_event(WindowEvent::KeyReleased { text: t });
+        self.press(text);
+        self.release(text);
+    }
+
+    /// 发送特殊键，可带修饰键。
+    pub fn special(&self, k: Key, mods: &[Key]) {
+        self.with_mods(mods, || self.key(&key_text(k)));
+    }
+
+    /// 在已聚焦的文本框中输入（逐字符发送按键事件）。
+    pub fn type_text(&self, text: &str) {
+        for ch in text.chars() {
+            self.key(&ch.to_string());
+        }
     }
 
     pub fn snapshot(&self) -> Res<Image> {
@@ -182,6 +301,11 @@ fn unique(mut v: Vec<ElementHandle>, key: &str) -> Res<ElementHandle> {
         0 => Err(format!("找不到元素：{key}").into()),
         n => Err(format!("元素标识不唯一（{n} 个）：{key}").into()),
     }
+}
+
+pub fn key_text(k: Key) -> String {
+    let t: slint::SharedString = k.into();
+    t.to_string()
 }
 
 /// 元素根（供 dump 使用）。

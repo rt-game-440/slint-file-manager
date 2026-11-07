@@ -1,0 +1,45 @@
+// A2 视觉语言：柔和浅灰侧栏、近白内容区、近黑文字、少量蓝色强调。
+// 颜色全部显式给出，不依赖系统主题（深色模式下也保持 A2 的浅色外观，见 docs/debug-harness.md）。
+// 精确数值不是 A2 的固定 token，尺寸随文字缩放（text-scale）一起放大。
+
+export global Theme {
+    // 文字缩放倍数：来自系统“文字大小”设置（1.0–2.25），harness 可直接设置
+    in-out property <float> text-scale: 1.0;
+
+    // ---------- 颜色 ----------
+    out property <color> sidebar-bg: #eef0f3;
+    out property <color> chrome-bg: #f6f7f9;
+    out property <color> content-bg: #fdfdfe;
+    out property <color> surface: #ffffff;
+    out property <color> divider: #e2e4e8;
+    out property <color> divider-strong: #d3d6dc;
+    out property <color> text: #1f2329;
+    out property <color> text-secondary: #687080;
+    out property <color> text-disabled: #b4b9c2;
+    out property <color> accent: #2f6fe4;
+    out property <color> accent-soft: #e2ecfc;
+    out property <color> accent-border: #a9c6f6;
+    out property <color> inactive-select: #eceef2;
+    out property <color> hover: #e6e8ed;
+    out property <color> hover-soft: #f2f4f8;
+    out property <color> pressed: #dcdfe5;
+    out property <color> folder: #4a84e8;
+    out property <color> folder-fill: #e7effd;
+    out property <color> danger: #c4402f;
+    out property <color> close-hover: #e5484d;
+
+    // ---------- 尺寸 ----------
+    out property <length> font: 13px * text-scale;
+    out property <length> font-small: 12px * text-scale;
+    out property <length> font-title: 16px * text-scale;
+    out property <length> font-heading: 15px * text-scale;
+    out property <length> control-h: 30px * text-scale;
+    out property <length> toolbar-h: max(56px, 40px * text-scale + 16px);
+    out property <length> tabstrip-h: 40px * text-scale;
+    out property <length> pathbar-h: 44px * text-scale;
+    out property <length> statusbar-h: 28px * text-scale;
+    out property <length> sidebar-w: 184px * text-scale;
+    out property <length> row-h: 30px * text-scale;
+    out property <length> icon-s: 18px * min(text-scale, 1.5);
+    out property <length> radius: 8px;
+}

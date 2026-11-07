@@ -1,0 +1,158 @@
+// 通用小控件：图标按钮、文字按钮、窗口控制按钮、菜单行。
+// 可交互元素同时设置 accessible-role 与 accessible-label（标识约定见 docs/debug-harness.md）。
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+
+// 工具栏与路径栏的图标按钮。enabled 为 false 时为禁用外观且不响应，未实现的操作不得伪装成可用。
+export component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> checkable: false;
+    in property <bool> checked: false;
+    in property <length> icon-size: Theme.icon-s;
+    callback clicked();
+
+    width: Theme.control-h + 4px;
+    height: Theme.control-h;
+    border-radius: 6px;
+    background: !root.enabled ? transparent : root.checked ? Theme.accent-soft : ta.pressed ? Theme.pressed : ta.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    animate background { duration: 90ms; }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        name: root.icon;
+        size: root.icon-size;
+        tint: !root.enabled ? Theme.text-disabled : root.checked ? Theme.accent : Theme.text;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// 带边框的文字按钮（状态面板中的“重试”等）。
+export component TextButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: Theme.control-h;
+    width: label.preferred-width + 28px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Theme.divider-strong;
+    background: ta.pressed ? Theme.pressed : ta.has-hover ? Theme.hover-soft : Theme.surface;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    label := Text {
+        text: root.text;
+        color: Theme.text;
+        font-size: Theme.font;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// 右上角窗口控制按钮（最小化、最大化／还原、关闭）。
+export component WindowButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> danger: false;
+    callback clicked();
+
+    width: 44px;
+    height: 30px;
+    background: ta.has-hover ? (root.danger ? Theme.close-hover : Theme.hover) : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        name: root.icon;
+        size: 15px;
+        line-width: 1.2px;
+        tint: ta.has-hover && root.danger ? #ffffff : Theme.text-secondary;
+    }
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// 弹出菜单中的一行，可显示勾选标记。
+export component MenuRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    callback clicked();
+
+    height: Theme.control-h;
+    border-radius: 6px;
+    background: ta.has-hover ? Theme.hover-soft : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        Rectangle {
+            width: Theme.icon-s;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                name: "check";
+                size: Theme.icon-s * 0.85;
+                tint: Theme.accent;
+                visible: root.checked;
+            }
+        }
+
+        Text {
+            text: root.text;
+            color: Theme.text;
+            font-size: Theme.font;
+            vertical-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
