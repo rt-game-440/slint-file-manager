@@ -739,7 +739,8 @@ mod tests {
 
     #[test]
     fn both_panes_share_work_for_the_same_file() {
-        let (s, rx) = svc(2, vec![]);
+        // 每个文件稍慢一点（20ms），保证第二个面板登记时第一个面板的任务还没做完，否则会被算作两次生成
+        let (s, rx) = svc(2, (0..4).map(|i| (i, 20)).collect());
         s.set_wanted(0, jobs(0..4, 0));
         s.set_wanted(1, jobs(0..4, 1));
         let done = collect(&rx, Duration::from_millis(300));
