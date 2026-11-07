@@ -344,6 +344,12 @@ fn restore_conflict(c: &Ctx) -> Res<()> {
     Ok(())
 }
 
+use crate::search::{
+    setup_all_disks as search_all_disks, setup_cancelled as search_cancelled,
+    setup_denied as search_denied, setup_empty as search_empty, setup_no_disks as search_no_disks,
+    setup_results as search_results, setup_scanning as search_scanning,
+};
+
 const fn s(
     name: &'static str,
     content: &'static str,
@@ -460,6 +466,75 @@ pub const STATIC: &[Scenario] = &[
         load: true,
         split: false,
         setup: list_text_scale,
+    },
+    s(
+        "search-scanning",
+        "在样例目录按 Ctrl+F 搜索“报告”，只送达开始与第一批结果：搜索仍在进行",
+        "搜索结果面板覆盖浏览区；顶部显示范围“当前目录及子目录”被选中、范围说明含具体目录；状态行为“正在搜索/扫描… 已找到 N 项”；有“取消搜索”按钮；已出现的结果行有图标、名称与所在目录；工具栏搜索框为蓝色描边并带清除按钮",
+        search_scanning,
+    ),
+    s(
+        "search-results",
+        "搜索“报告”完成并用向下键选中第一项",
+        "状态行“搜索完成：共 3 项（用时… 扫描 N 个文件夹…）”，另有“已跳过 1 个无权限的文件夹”；右上有“打开”“定位所在目录”；第一行为浅蓝选中；能力说明“搜索能力：基本搜索”；底部状态栏显示“搜索结果：3 项”",
+        search_results,
+    ),
+    s(
+        "search-empty",
+        "搜索一个不存在的名称",
+        "结果区居中显示“没有找到匹配项”和修改条件的建议；状态行说明已扫描完毕及用时，不是空白；没有取消按钮",
+        search_empty,
+    ),
+    s(
+        "search-denied",
+        "搜索只存在于无权限文件夹里的名称“秘密”",
+        "没有结果；状态行明确“已跳过 1 个无权限的文件夹”，让用户知道结果不完整的原因，而不是单纯的空白",
+        search_denied,
+    ),
+    s(
+        "search-all-disks",
+        "切到“全盘”：根目录为样例目录与一个已不存在的磁盘路径",
+        "“全盘”按钮为选中态；范围说明列出两个根并声明只按名称搜索、不读内容、不登录云账号；状态行有“1 个位置不可访问（磁盘已移除或未就绪）”；结果仍显示可访问根目录里找到的项",
+        search_all_disks,
+    ),
+    s(
+        "search-no-disks",
+        "切到“全盘”但没有识别到任何磁盘",
+        "结果区显示“搜索范围不可访问”，状态行红字“没有识别到可用的磁盘”；不是空结果",
+        search_no_disks,
+    ),
+    s(
+        "search-enhanced",
+        "模拟增强后端就绪，返回 3 个有效项和 1 个已被删除的陈旧索引项",
+        "能力说明“搜索能力：Everything（增强）”，没有降级提示；3 个结果，状态行说明“已剔除 1 条已不存在的索引项”",
+        search_results,
+    ),
+    s(
+        "search-fallback-not-running",
+        "模拟增强已安装但未运行",
+        "黄色提示条明确“Everything（模拟）已安装但未运行，本次使用基本搜索”；能力说明为基本搜索；结果为基本搜索的完整结果",
+        search_results,
+    ),
+    s(
+        "search-fallback-failed",
+        "模拟增强查询中途失败（等待回复超时）",
+        "黄色提示条说明增强查询失败已回退；能力说明为基本搜索；结果是基本搜索的完整结果，没有混入增强数据，也不是“没有找到匹配项”",
+        search_results,
+    ),
+    s(
+        "search-cancelled",
+        "扫描中点击“取消搜索”",
+        "状态行“已取消：已显示 N 项，未扫描完，结果不完整”；“取消搜索”按钮消失；已出现的结果保留",
+        search_cancelled,
+    ),
+    Scenario {
+        name: "search-results-text-scale-150",
+        content: "系统文字大小 150% 下的搜索结果",
+        expected: "范围按钮、状态行、结果行随文字放大且不被裁切；范围说明与状态行单行省略；按钮不重叠",
+        text_scale: 1.5,
+        load: true,
+        split: false,
+        setup: search_results,
     },
     Scenario {
         name: "dual-default",
@@ -612,6 +687,8 @@ pub fn open(name: &str, size: (u32, u32), scale: f32) -> Res<Ctx> {
             load: sc.load,
             split: sc.split,
             live,
+            // 名称以 search- 开头的场景使用固定的搜索环境（模拟增强后端、全盘根目录，见 search::showcase_env）
+            search: crate::search::showcase_env(name),
             ..Opts::default()
         },
     )?;

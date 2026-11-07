@@ -219,6 +219,25 @@ impl Live {
         self.inflight.borrow_mut().remove(&tab);
     }
 
+    /// 全盘搜索的根目录：所有已识别磁盘（含未就绪的，搜索时如实报告“不可访问”），
+    /// 外加不在任何磁盘根之下的云盘本地目录（通常已在系统盘之内，不会重复）。
+    pub(super) fn search_roots(&self) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = self
+            .drives
+            .borrow()
+            .iter()
+            .map(|d| d.root.clone())
+            .collect();
+        for c in [&self.onedrive, &self.icloud].into_iter().flatten() {
+            let covered =
+                drive_letter(c).is_some_and(|l| self.drives.borrow().iter().any(|d| d.letter == l));
+            if !covered {
+                roots.push(c.clone());
+            }
+        }
+        roots
+    }
+
     fn drive_for(&self, p: &Path) -> Option<Drive> {
         let l = drive_letter(p)?;
         self.drives.borrow().iter().find(|d| d.letter == l).cloned()
