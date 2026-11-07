@@ -1,0 +1,5 @@
+# 静态链接 MSVC 运行库（Issue #15）：不加这一行时 exe 会动态依赖 VCRUNTIME140.dll，
+# 没装 VC++ 可再发行组件的干净机器上无法启动，而分发包只含 exe 与 LICENSE。
+# Universal CRT 仍由 Windows 10／11 自带（api-ms-win-crt-*），不受影响。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

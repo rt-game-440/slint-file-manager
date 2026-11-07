@@ -24,3 +24,10 @@ Windows 11 的最低版本同样待在有环境后确认。有 Win11 机器后�
 ## 常用命令
 
 见 AGENTS.md「常用入口」。
+
+## 运行库与分发补充（2026-11-08，Issue #15）
+
+- 分发包只含 exe 与 LICENSE，不带 VC++ 可再发行组件，因此用 `.cargo/config.toml` 的 `target-feature=+crt-static` 静态链接 VC 运行库；Universal CRT（`api-ms-win-crt-*`）随 Windows 10／11 提供。
+- exe 静态导入 `cldapi.dll`（云文件 API，Windows 10 1709 起提供），所以实际下限不低于 1709；仍只验证过 22H2。
+- `scripts/verify-dist.ps1` 解压最新 zip 到临时目录，检查导入表并以精简 PATH 启动 `--smoke`。这不等于“真正干净的机器”：开发机上没有做虚拟机、沙盒或 Win11 启动验证。
+- 默认渲染器（femtovg）在开发机上的窗口对屏幕合成透明（Issue #39），是否在实体显示器上复现待确认；软件渲染只在 OpenGL 初始化失败时回退。
