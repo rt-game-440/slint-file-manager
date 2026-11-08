@@ -61,6 +61,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
     "Win32_System_SystemServices",
     "Win32_System_Variant",
+    "Win32_UI_Controls",
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
@@ -86,6 +87,12 @@ path = "src/main.rs"
 name = "harness"
 path = "src/bin/harness/main.rs"
 required-features = ["harness"]
+
+# “在文件夹中显示”（SHOpenFolderAndSelectItems）的原型宿主与测试调用器（Issue #18）：只用临时路径，不写注册表；
+# 发布包不含（dist.ps1 只复制主程序）
+[[bin]]
+name = "reveal-probe"
+path = "src/bin/reveal-probe/main.rs"
 
 # 真实窗口里的原生右键菜单自测（Issue #9）：真实事件循环、真实外壳、受控夹具；发布产物不含
 [[bin]]

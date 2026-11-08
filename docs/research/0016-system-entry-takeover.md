@@ -25,7 +25,7 @@
 | E3 | 右键菜单的默认项（粗体） | 是 | E1/E2 的副作用：粗体项变成“用 Slint 文件管理器打开”；“打开”“在新窗口中打开”仍是资源管理器 |
 | E4 | 程序以默认动词打开文件夹（`ShellExecuteEx` 不指定动词） | 是（随 E1/E2） | 哪些程序这样调用需逐个实测 |
 | E5 | Win+E | 待用户确认 | 机制独立、风险低，但 Win11 未实测 |
-| E6 | `SHOpenFolderAndSelectItems`（浏览器下载、VS Code 等“在文件夹中显示”） | 进入 #18 原型，不承诺 | 需要 `IShellWindows` 注册；冷启动行为未证实 |
+| E6 | `SHOpenFolderAndSelectItems`（浏览器下载、VS Code 等“在文件夹中显示”） | 进入 #18 原型，不承诺 | 需要 `IShellWindows` 注册；冷启动行为未证实。#18 结果：已打开的文件夹产品实测可用，冷启动仍未证实（第 11 节） |
 | E7 | 用户可配置命令的程序（Everything 等） | 是（用户自配） | 用户把“打开路径”命令设为本应用，参数用 explorer 风格，由 `args` 解析 |
 | — | `Folder` 虚拟位置、显式 `open`／`explore`、explorer.exe 直接启动、`/select`、任务栏和开始菜单图标、文件对话框 | 否 | 见第 4 节 |
 
@@ -190,8 +190,8 @@
 ## 9. 未覆盖与仍未知事项
 
 - 真实接管下的全部行为（E1–E6）：本机不做，列入验收清单，在受控环境验证。
-- `SHOpenFolderAndSelectItems` 在找不到已注册窗口时走哪个动词、选中是否保留。
-- `explorer.exe <路径>`、`explorer /select,` 是否随 `Directory` 默认动词转发。
+- `SHOpenFolderAndSelectItems` 在找不到已注册窗口时走哪个动词、选中是否保留（#18 原型后仍未知，见第 11 节）。
+- `explorer.exe <路径>`、`explorer /select,` 是否随 `Directory` 默认动词转发（#18 已实测：未接管时即使文件夹已登记为外壳窗口也新开资源管理器；接管后仍未知）。
 - `CLSID_ExecuteFolder`（`open` 动词的委托对象）是否会再读默认动词，即交回 Windows 时是否可能循环。
 - Win+E 覆盖中空 `DelegateExecute` 的实际效果。
 - 微信、QQ 的调用方式只有静态字符串证据；浏览器下载以外的常见程序（IDM、迅雷、qBittorrent、Office“打开文件位置”等）未调查。
@@ -207,3 +207,53 @@
 - 调用方源码：[Chromium `chrome/browser/platform_util_win.cc`](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/browser/platform_util_win.cc)（`ShowItemInFolder` → `SHOpenFolderAndSelectItems`，`ERROR_FILE_NOT_FOUND` 时 `ShellExecute("open", 父目录)`）、[Electron `shell/common/platform_util_win.cc`](https://github.com/electron/electron/blob/main/shell/common/platform_util_win.cc)（同上）、VS Code `src/vs/platform/native/electron-main/nativeHostMainService.ts`（`showItemInFolder` → Electron `shell.showItemInFolder`）、[Firefox `xpcom/io/nsLocalFileWin.cpp`](https://searchfox.org/mozilla-central/source/xpcom/io/nsLocalFileWin.cpp)（`Reveal`）
 - 微软文档：SHOpenFolderAndSelectItems、IShellWindows、“Merged View of HKEY_CLASSES_ROOT”、“Creating Context Menu Handlers / Verbs”、Windows Explorer 命令行开关（`/n`、`/e`、`/root`、`/select`），均在 learn.microsoft.com
 - 本机静态扫描：`C:\Program Files\Tencent\Weixin\4.2.0.9\Weixin.dll`（含 `/select,`、`explorer.exe`，无 `SHOpenFolderAndSelectItems`）、`C:\Program Files\Tencent\QQNT\versions\9.9.37-54395\QQNT.dll`（含 `SHOpenFolderAndSelectItems`）。只是字符串存在，不代表运行时调用路径
+
+## 11. #18 原型与集成结果（2026-11-08）
+
+范围按 #16 的用户决定：只做 `SHOpenFolderAndSelectItems` 的 `IShellWindows` 原型（不承诺成功）；`explorer /select,` 列为未覆盖；虚拟位置不接管；与 #17 共用启用与恢复。新增两个证据等级：
+
+| 等级 | 含义 |
+| --- | --- |
+| 原型实测 | `reveal-probe host`（独立的 Win32 宿主窗口，把指定文件夹登记进 `IShellWindows`）＋ `reveal-probe call`（按 Chromium 源码的参数调用 `SHOpenFolderAndSelectItems`：父目录 PIDL + 文件 PIDL），只用 `%TEMP%` 下的临时目录，不写注册表；登记随宿主进程退出注销 |
+| 产品实测 | release 版主程序 + `SFM_TEST_REG_ROOT` 测试根里的“已接管”状态（`reveal-probe test-root take`，与设置面板同一份 `manage::take`），由 `reveal-probe call` 调用；脚本 `scripts/verify-reveal.ps1`，已含在 `scripts/verify.ps1` |
+
+测试根只决定本应用自己是否登记（读到“已接管”才登记），**外壳并不读测试根**，所以“应用未运行”“运行中但文件夹未打开”这两种需要外壳回退去启动本应用的情况，开发机上无法实测，只能在测试账户里人工验收。
+
+### 11.1 外壳的调用链（原型实测）
+
+`SHOpenFolderAndSelectItems` 找到已登记窗口后依次调用：`IShellWindows::FindWindowSW`（只匹配以 `SWC_BROWSER` 登记的窗口）→ `IWebBrowserApp::get_HWND`、`get_Document` → 文档对象的 `IServiceProvider::QueryService(IID_IFolderView, IID_IShellView)` → `IShellView::SelectItem(子项 PIDL, 标志)`。第一个文件的标志是 `0x1d`（选中、取消其他、确保可见、焦点），其余文件是 `0x1`（追加选中）。登记方式：`RegisterPending(线程, 文件夹 PIDL, —, SWC_BROWSER)` 再 `Register(IDispatch, hwnd, SWC_BROWSER)`，两次得到同一个 cookie；导航用 `OnNavigate`，关闭用 `Revoke`。每个标签登记一项（同一 hwnd、不同 cookie），与 Explorer++ 提交 67c3687 相同。实现在 `src/sysentry/shellwin.rs`。
+
+### 11.2 实验结果
+
+| 场景 | 结果 | 等级 |
+| --- | --- | --- |
+| 文件夹已登记（窗口在前台或最小化） | 调用 29–58 ms 返回 `S_OK`，不开资源管理器；宿主收到 `SelectItem`，路径含中文和空格正确；最小化的窗口被系统还原并切到前台，但不是每次都前置（导航实验里宿主未被前置），所以产品收到选中后自己再还原并前置一次 | 原型实测 |
+| 同一窗口登记两个文件夹（两个标签） | 选中请求落到目标文件夹那一项（槽号区分标签） | 原型实测 |
+| 两个文件／只传文件 PIDL（`cidl=0`） | 两个文件依次 `0x1d`、`0x1`；只传文件 PIDL 同样选中 | 原型实测 |
+| 登记后导航到别的文件夹（`OnNavigate`） | 新文件夹的调用落到该项，旧文件夹回退 | 原型实测 |
+| 文件夹未登记 | 资源管理器新开窗口（约 375 ms） | 原型实测 |
+| 调用进行中、约 30 ms 后才登记该文件夹 | 新登记的一项也收到 `SelectItem`，资源管理器同时开了窗口（推断：外壳在回退期间仍会查找新登记的窗口；只做过一次） | 原型实测（机制为推断） |
+| 回退时用哪个动词启动谁 | 无法在不做真实接管的前提下实测；按上一行推断：若回退经 `Directory` 默认动词启动本应用，本应用尽快登记即可收到选中 | 未证实（推断） |
+| 调用方取得 PIDL 后文件被删除 | 外壳仍把请求送到已登记的标签；本应用切到标签并提示“已不存在（可能已被移动或删除）” | 产品实测 |
+| 文件本来不存在 | 测试调用器按 Chromium 的做法先解析 PIDL，解析失败就不发出调用，本应用与资源管理器都不参与；真实程序此时怎样处理（例如改为打开父目录）只能人工验收 | 产品实测（调用方部分） |
+| 已登记的文件夹被 `ShellExecute(open／默认动词)` 打开 | 不开资源管理器，系统把本窗口还原并切到前台，但**没有任何 COM 调用**，本应用无从得知是哪个标签 | 原型实测 |
+| 命令行 `explorer.exe /select,<文件>`（模拟微信的调用方式；微信本身只有静态字符串证据）、`explorer.exe <文件夹>` | 即使该文件夹已登记为外壳窗口，也新开资源管理器窗口 | 原型实测（未做真实接管） |
+| `Shell.Application.Windows()`（脚本后期绑定枚举） | 能枚举到本应用的项，但 `HWND`、`LocationURL` 为空（本实现的 `IDispatch` 只提供早期绑定接口） | 原型实测 |
+| 已接管 + 主程序运行：已打开的文件夹、转发新开的标签、两个文件 | 在对应标签选中，不开资源管理器；不新建标签；退出时注销 | 产品实测 |
+| 已接管 + 主程序运行：未打开的文件夹 | 回退到资源管理器（测试根下外壳不会启动本应用） | 产品实测 |
+| 停用接管（同一测试根恢复原设置） | 主程序不登记；已在本应用打开的文件夹也回退到资源管理器；恢复干净 | 产品实测 |
+| 真实的 Chrome／Edge／VS Code／Firefox／QQ | 未实测：这些程序的“在文件夹中显示”只能从界面触发（VS Code 没有执行命令的命令行入口，Edge 需要先真实下载文件），开发机上不做 UI 自动化去驱动用户自己的程序；它们走的调用由源码或静态证据确定（第 4 节 E6），测试调用器用的是与 Chromium 相同的参数 | 仅人工验收 |
+
+另外尝试过“只在调用进程里用 `RegOverridePredefKey` 把 HKCR 指到 HKCU 下的测试键”来模拟冷启动：外壳弹出“没有注册类”的阻塞错误框，调用 255 秒后以 `E_ABORT` 返回，宿主没有被启动，结论无效；测试键已删除，该实验方式已从测试调用器中移除。
+
+### 11.3 结论与产品决定
+
+- **可行**：已打开文件夹的“在文件夹中显示”可以可靠地落到本应用对应标签并选中（产品实测）。冷启动和“运行中但文件夹未打开”依赖外壳回退走默认动词，未证实，交给人工验收；最坏情况是只打开文件夹不选中，或回到资源管理器。
+- **不单独设开关，与 #17 共用“用本应用打开文件夹”**：登记只在进程存活期间有效，不写持久配置；未接管时冷启动和未打开的文件夹都到不了本应用，单独开启只会得到“有时本应用、有时资源管理器”的不一致体验；登记还会改变 `ShellExecute(open)` 打开已登记文件夹的行为（见上表），没有选择接管的用户不应受影响；多一个开关还要多一套界面与基线。停用接管即刻全部注销。
+- **登记范围**：两个面板的全部标签，位置是可访问的文件系统文件夹；回收站与不可用的位置不登记。
+
+### 11.4 仍未知
+
+- 回退时外壳走哪个动词、选中是否保留（冷启动、运行中但文件夹未打开）。
+- 已接管时 `explorer.exe /select,` 是否经 `Directory` 默认动词转发到本应用（未接管时已实测回退）。
+- 真实 Chrome／Edge／VS Code／Firefox／QQ 的效果；Windows 11 全部未实测。

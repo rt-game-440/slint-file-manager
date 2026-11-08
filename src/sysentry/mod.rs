@@ -14,6 +14,7 @@ pub mod args;
 pub mod instance;
 pub mod manage;
 pub mod request;
+pub mod shellwin;
 pub mod takeover;
 pub mod winreg;
 
