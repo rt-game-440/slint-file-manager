@@ -146,5 +146,5 @@ reg delete "HKCU\Software\Classes\CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}" 
 | 此电脑、回收站、网络等虚拟位置 | 未覆盖 | 不登记，回到资源管理器 |
 | 停用接管后 | 实测通过（测试根） | 主程序不再登记，已在本应用打开的文件夹也回到资源管理器，测试根恢复干净；真实注册表的恢复见验收清单 #17、#18 |
 | 停用后 #17 的打开文件夹与标签复用 | 实测通过 | 本次 `scripts/verify.ps1` 复跑 `verify-instance.ps1`、`verify-session.ps1` 通过；真实接管下的恢复见 #17 验收项 |
-| 枚举外壳窗口的程序或脚本（`Shell.Application.Windows()` 后期绑定） | 未覆盖 | 原型实测：能枚举到本应用的项，但 `HWND`、`LocationURL` 为空（只实现了早期绑定接口）。按“当前资源管理器文件夹”工作的工具可能把这一项当成无效窗口或跳过 |
+| 枚举外壳窗口的程序或脚本（`Shell.Application.Windows()` 后期绑定，Issue #51） | 实测通过（PowerShell） | 每个标签的登记对象支持 `IDispatch` 后期绑定：只读读取 `HWND`（主窗口句柄）、`LocationURL`（`file:///…`，非 ASCII 不转义，与资源管理器一致）、`LocationName`、`FullName`／`Path`／`Name`（本程序）、`Visible`、`Left`／`Top`／`Width`／`Height`、`Document.Folder.Self.Path`／`.Name`、`Document.Folder.Title`。成员发现用系统类型库（SHDocVw 的 `IWebBrowserApp`、Shell32 的 `IShellFolderViewDual`／`Folder3`／`FolderItem2`），DISPID 与资源管理器一致；类型库取不到时退回手写名称表（只有 Document 链）。不支持的成员（`Navigate`、`Quit`、写属性、`Document.FocusedItem`、`Document.SelectedItems()` 等）返回 `E_NOTIMPL`／`DISP_E_MEMBERNOTFOUND`，脚本里表现为读到空或出错，不崩溃。自动化：`scripts/verify-reveal.ps1`。AutoHotkey 和真实的启动器／快速跳转工具未验证，列入人工验收 |
 | Windows 11 | 仅人工验收 | 没有环境 |

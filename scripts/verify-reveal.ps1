@@ -131,6 +131,43 @@ try {
     Start-Sleep -Milliseconds 300
     Check ((Count-Lines $app $sel) -eq $k) '未打开的文件夹不在本应用选中'
 
+    # 后期绑定（Issue #51）：脚本经 Shell.Application.Windows() 枚举，读到本应用标签的属性
+    Write-Host '  -- 后期绑定枚举（Shell.Application.Windows()）'
+    # 资源管理器的 LocationURL 对非 ASCII 字符不转义（与本应用一致），比较前统一解码
+    function Unesc([string]$u) { [uri]::UnescapeDataString($u) }
+    $shell = New-Object -ComObject Shell.Application
+    $mine = @($shell.Windows() | Where-Object { try { (Unesc $_.LocationURL) -eq (Unesc ([uri]$A).AbsoluteUri) } catch { $false } })
+    Check ($mine.Count -eq 1) "枚举到 1 个 LocationURL 为甲目录的项（$($mine.Count)）"
+    if ($mine.Count -ne 1) {
+        foreach ($x in $shell.Windows()) {
+            $u = try { $x.LocationURL } catch { "读取失败：$($_.Exception.Message)" }
+            Write-Host "    诊断：枚举项 LocationURL=$u（期望 $(([uri]$A).AbsoluteUri)）"
+        }
+    }
+    if ($mine.Count -ge 1) {
+        $w = $mine[0]
+        Check ($w.HWND -ne 0 -and $w.HWND -ne $null) "HWND 非空（$($w.HWND)）"
+        $app.p.Refresh()
+        $mainHwnd = [int64]$app.p.MainWindowHandle
+        if ($mainHwnd -ne 0) { Check ([int64]([uint32]([int]$w.HWND)) -eq $mainHwnd) "HWND 等于主程序窗口句柄（$mainHwnd）" }
+        Check ($w.LocationName -eq '甲目录') "LocationName=甲目录（$($w.LocationName)）"
+        Check ($w.FullName -eq $exe) "FullName=主程序路径（$($w.FullName)）"
+        Check ($w.Visible -eq $true) 'Visible=True'
+        Check ($w.Document.Folder.Self.Path -eq $A) "Document.Folder.Self.Path=甲目录（$($w.Document.Folder.Self.Path)）"
+        Check ($w.Document.Folder.Title -eq '甲目录') "Document.Folder.Title=甲目录（$($w.Document.Folder.Title)）"
+        Check ($w.Document.Folder.Self.Name -eq '甲目录') 'Document.Folder.Self.Name=甲目录'
+        # 不支持的成员：明确失败（不崩溃，主程序继续运行）
+        $bad = try { $null = $w.Document.FocusedItem; 'noerror' } catch { 'error' }
+        Check ($bad -ne 'crash') "不支持的 Document 成员读取不崩溃（$bad）"
+        Check (-not $app.p.HasExited) '枚举之后主程序仍在运行'
+    }
+    $other = @($shell.Windows() | Where-Object { try { (Unesc $_.LocationURL) -eq (Unesc ([uri]$B).AbsoluteUri) } catch { $false } })
+    Check ($other.Count -eq 1 -and $other[0].LocationName -eq '乙 目录') '乙 目录（另一标签）同样可枚举'
+    [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    $k = Count-Lines $app $sel
+    $r = Probe "call `"--file=$fa`" --wait-ms=1500"
+    Check ($r.text -match 'hr=0x0' -and $r.text -match 'new_explorer=0' -and (Wait-More $app $sel $k)) '枚举之后 SHOpenFolderAndSelectItems 仍能定位到本应用'
+
     $res = Wait-Exe $app 60000
     Check ($res.code -eq 0) '主程序正常退出'
     Check ($res.text -match 'reveal: 已注销') '退出时注销外壳窗口'
