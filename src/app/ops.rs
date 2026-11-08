@@ -31,6 +31,10 @@ pub enum Dialog {
     Notice,
     /// 复制或移动遇到同名项目：保留两者 / 跳过 / 取消。
     Conflict(Pending),
+    /// 启用“用本应用打开文件夹”前的确认（见 `entry`）。
+    EntryEnable,
+    /// 启动自检发现关联指向旧位置：修复 / 恢复原设置 / 以后再说。
+    EntryStale,
 }
 
 /// 新建的内容。
@@ -474,8 +478,10 @@ impl Controller {
         if let Some(w) = self.window.upgrade() {
             w.set_dialog_visible(false);
         }
-        let p = self.ws.borrow().active_pane();
-        self.focus_pane(p);
+        if !self.refocus_settings() {
+            let p = self.ws.borrow().active_pane();
+            self.focus_pane(p);
+        }
         d
     }
 
@@ -486,14 +492,17 @@ impl Controller {
                 self.run_task(Task::Delete { mode, paths })
             }
             Some(Dialog::Conflict(pend)) => self.resolve_conflict(pend, Policy::KeepBoth),
+            Some(Dialog::EntryEnable | Dialog::EntryStale) => self.entry_take(),
             Some(Dialog::Notice) | None => {}
         }
     }
 
-    /// 对话框的第三个选项（名称冲突时的“跳过”）。
+    /// 对话框的第三个选项（名称冲突时的“跳过”、关联失效时的“恢复原设置”）。
     pub fn secondary_dialog(&self) {
-        if let Some(Dialog::Conflict(pend)) = self.close_dialog() {
-            self.resolve_conflict(pend, Policy::Skip);
+        match self.close_dialog() {
+            Some(Dialog::Conflict(pend)) => self.resolve_conflict(pend, Policy::Skip),
+            Some(Dialog::EntryStale) => self.entry_restore(),
+            _ => {}
         }
     }
 

@@ -98,6 +98,11 @@ pub fn extras(ctx: &Ctx) -> Value {
             "confirm": w.get_dialog_confirm_label().to_string(),
             "cancel": w.get_dialog_cancel_label().to_string(),
         },
+        "settings": {
+            "visible": w.get_settings_visible(),
+            "entry_state": format!("{:?}", w.get_entry_view().state),
+            "entry_title": w.get_entry_view().title.to_string(),
+        },
         "bin_items": ctx.stash.bin_len(),
         "pending_loads": ctx.ctl.pending(),
         "opened": ctx.opened.borrow().iter().map(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).collect::<Vec<_>>(),

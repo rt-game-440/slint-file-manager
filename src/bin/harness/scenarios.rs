@@ -796,13 +796,49 @@ pub const STATIC: &[Scenario] = &[
     Scenario {
         name: "thumb-cache-menu",
         content: "缩略图全部生成并写入（空的）持久缓存后，点击工具栏“更多”",
-        expected: "“更多”按钮下方弹出白色圆角菜单：标题“缩略图缓存”、占用说明（已用若干 KB、8 张、上限 512 MB）、分隔线、“容量上限”及 256 MB／512 MB（勾选）／1 GB／2 GB、分隔线、“清空缩略图缓存”",
+        expected: "“更多”按钮下方弹出白色圆角菜单：标题“缩略图缓存”、占用说明（已用若干 KB、8 张、上限 512 MB）、分隔线、“容量上限”及 256 MB／512 MB（勾选）／1 GB／2 GB、分隔线、“清空缩略图缓存”、分隔线、“设置…”",
         text_scale: 1.0,
         load: true,
         split: false,
         thumb_cache: true,
         setup: crate::thumbs::scene_cache_menu,
     },
+    s(
+        "settings-off",
+        "“更多 → 设置…”打开设置面板；系统入口未接管（内存注册表，布置为本机同构的初始状态）",
+        "窗口变暗，居中白色卡片标题“设置”、右上角 ×；“系统入口”一节：开关“用本应用打开文件夹”为灰色关；下方状态框灰色标题“未接管”、说明“文件夹、驱动器和 Win+E 仍由资源管理器打开。”；没有修复／恢复按钮；底部有备份与恢复说明",
+        crate::entry::scene_settings,
+    ),
+    s(
+        "settings-on",
+        "已在设置里启用“用本应用打开文件夹”后打开设置面板",
+        "开关为蓝色开；状态框绿色标题“已接管”，说明给出写入命令的程序路径 C:\\Program Files\\Slint 文件管理器\\slint-file-manager.exe；没有修复／恢复按钮",
+        crate::entry::scene_settings,
+    ),
+    s(
+        "settings-conflict",
+        "启用后别的程序把 Directory\\shell 的默认动词改成了自己的，再打开设置面板",
+        "开关仍为开；状态框橙色标题“冲突”，说明列出被改动的 Directory\\shell\\(默认)，并说明可重新接管或恢复原设置；下方两个按钮“重新接管”“恢复原设置”",
+        crate::entry::scene_settings,
+    ),
+    s(
+        "settings-stale",
+        "接管时登记的是另一个（已不存在的）位置的程序，再打开设置面板",
+        "开关仍为开；状态框橙色标题“关联失效”，说明给出旧路径 D:\\旧位置\\…\\slint-file-manager.exe 已不存在；下方按钮“修复”“恢复原设置”",
+        crate::entry::scene_settings,
+    ),
+    s(
+        "settings-unavailable",
+        "没有数据目录（无法保存备份）时打开设置面板",
+        "开关变淡且不可点；状态框灰色标题“不可用”，说明给出原因（没有数据目录，无法保存备份）",
+        crate::entry::scene_settings,
+    ),
+    s(
+        "settings-confirm",
+        "未接管时在设置面板里打开开关",
+        "设置面板上方弹出确认对话框“用本应用打开文件夹？”：说明双击文件夹、驱动器与 Win+E 会打开本应用、在资源管理器里双击文件夹也会改到本应用、只写当前用户设置并先备份；列出将替换的现有设置“• Drive\\shell\\(默认) = none”；按钮“启用”“取消”",
+        crate::entry::scene_confirm,
+    ),
     s(
         "rename-edit",
         "选中“季度报告.docx”后按 F2",
@@ -1014,6 +1050,8 @@ pub fn open(name: &str, size: (u32, u32), scale: f32) -> Res<Ctx> {
             live,
             // 名称以 search- 开头的场景使用固定的搜索环境（模拟增强后端、全盘根目录，见 search::showcase_env）
             search: crate::search::showcase_env(name),
+            // 名称以 settings- 开头的场景使用内存注册表与虚构程序路径（见 entry::showcase_env）
+            entry: crate::entry::showcase_env(name),
             thumb_cache: if sc.thumb_cache {
                 let d = fixture::scratch_dir("scene-thumb-cache");
                 let _ = std::fs::remove_dir_all(&d);

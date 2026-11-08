@@ -268,6 +268,8 @@ pub struct SessionStore {
     dir: PathBuf,
     /// 为 false 时 [`SessionStore::save`] 拒绝写入（原文件无法移走，不覆盖它）
     writable: Cell<bool>,
+    /// 只读取不保存（同一数据目录的主实例无响应、本进程独立运行时，避免两个进程互相覆盖会话）
+    read_only: bool,
 }
 
 fn is_backup_name(n: &str) -> bool {
@@ -279,7 +281,14 @@ impl SessionStore {
         SessionStore {
             dir: dir.into(),
             writable: Cell::new(true),
+            read_only: false,
         }
+    }
+
+    /// 只恢复、不保存的会话存储：[`SessionStore::save`] 什么也不写并返回成功。
+    pub fn read_only(mut self) -> SessionStore {
+        self.read_only = true;
+        self
     }
 
     /// 默认位置：`SFM_DATA_DIR`，否则 `%LOCALAPPDATA%\slint-file-manager`。两者都没有时返回 `None`（不保存会话）。
@@ -409,6 +418,9 @@ impl SessionStore {
 
     /// 原子写入会话文件。目录不存在时创建。
     pub fn save(&self, state: &SessionState) -> io::Result<()> {
+        if self.read_only {
+            return Ok(());
+        }
         if !self.writable.get() {
             return Err(io::Error::other("会话文件不可覆盖，已停止保存"));
         }

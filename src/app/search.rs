@@ -9,7 +9,7 @@
 //!   （[`Controller::search_pump`] 可限制送达的事件数，用来截取“扫描中”的中间状态）。
 
 use super::{Controller, Msg, post};
-use crate::browse::{Entry, TabId, format};
+use crate::browse::{Entry, LoadState, TabId, format};
 use crate::search::{
     self, BackendKind, BackendPref, Cancel, Enhancer, Event, Hit, Notice, NoticeCode, NoticeKind,
     Query, Request, Scope, Summary,
@@ -729,6 +729,19 @@ impl Controller {
     pub(super) fn search_dismiss(&self) {
         if self.search.st.borrow().active {
             self.search_close_inner(true);
+        }
+    }
+
+    /// 在标签里选中 `name`：标签已读取完成时立即选中，否则在读取完成后选中（外部请求的“打开并选中”）。
+    pub(super) fn locate_in(&self, tab: TabId, name: OsString) {
+        *self.search.locate.borrow_mut() = Some((tab, name));
+        let ready = {
+            let ws = self.ws.borrow();
+            ws.locate(tab)
+                .is_some_and(|(p, i)| *ws.pane(p).tabs()[i].state() == LoadState::Ready)
+        };
+        if ready {
+            self.search_after_load(tab);
         }
     }
 

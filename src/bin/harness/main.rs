@@ -10,6 +10,7 @@ mod ctx;
 mod delete;
 mod dual;
 mod dump;
+mod entry;
 mod fixture;
 mod frames;
 mod live;
@@ -141,6 +142,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
         let (prev, f8) = preview::preview(size, scale).map_err(|e| format!("[预览] {e}"))?;
         let (shell, f9) = preview::shell(size, scale).map_err(|e| format!("[系统缩略图] {e}"))?;
         let (cloud, f10) = cloud::cloud(size, scale).map_err(|e| format!("[云盘] {e}"))?;
+        let (ent, f11) = entry::entry(size, scale).map_err(|e| format!("[系统入口] {e}"))?;
         fails.extend(f1.into_iter().map(|f| format!("[单栏] {f}")));
         fails.extend(f2.into_iter().map(|f| format!("[双栏] {f}")));
         fails.extend(f3.into_iter().map(|f| format!("[恢复] {f}")));
@@ -151,7 +153,8 @@ fn cmd_run(args: &Args) -> Res<i32> {
         fails.extend(f8.into_iter().map(|f| format!("[预览] {f}")));
         fails.extend(f9.into_iter().map(|f| format!("[系统缩略图] {f}")));
         fails.extend(f10.into_iter().map(|f| format!("[云盘] {f}")));
-        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context, "thumbs": thumbs, "xfer": xf, "preview": prev, "shell": shell, "cloud": cloud}));
+        fails.extend(f11.into_iter().map(|f| format!("[系统入口] {f}")));
+        runs.push(json!({"single": single, "dual": dual, "restore": restore, "delete": del, "context": context, "thumbs": thumbs, "xfer": xf, "preview": prev, "shell": shell, "cloud": cloud, "entry": ent}));
     }
     let consistent = runs.windows(2).all(|w| w[0] == w[1]);
     if !consistent {
@@ -159,7 +162,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
         // 指出第一处不同的步骤与字段，便于定位不确定性来源
         'outer: for sec in [
             "single", "dual", "restore", "delete", "context", "thumbs", "xfer", "preview", "shell",
-            "cloud",
+            "cloud", "entry",
         ] {
             let (a, b) = (&runs[0][sec], &runs[1][sec]);
             for (x, y) in a
@@ -188,7 +191,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
                 "failures": fails, "steps": runs[0]}),
     )?;
     println!(
-        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步、缩略图 {} 步、新建重命名传输 {} 步、大图预览 {} 步、系统缩略图 {} 步、云盘 {} 步，重复 {repeat} 次，{}；输出 {}",
+        "交互脚本：单栏 {} 步、双栏 {} 步、重启恢复 {} 步、删除与回收站 {} 步、右键菜单 {} 步、缩略图 {} 步、新建重命名传输 {} 步、大图预览 {} 步、系统缩略图 {} 步、云盘 {} 步、系统入口 {} 步，重复 {repeat} 次，{}；输出 {}",
         runs[0]["single"].as_array().map_or(0, |a| a.len()),
         runs[0]["dual"].as_array().map_or(0, |a| a.len()),
         runs[0]["restore"].as_array().map_or(0, |a| a.len()),
@@ -199,6 +202,7 @@ fn cmd_run(args: &Args) -> Res<i32> {
         runs[0]["preview"].as_array().map_or(0, |a| a.len()),
         runs[0]["shell"].as_array().map_or(0, |a| a.len()),
         runs[0]["cloud"].as_array().map_or(0, |a| a.len()),
+        runs[0]["entry"].as_array().map_or(0, |a| a.len()),
         if fails.is_empty() {
             "全部断言通过且结果一致"
         } else {
