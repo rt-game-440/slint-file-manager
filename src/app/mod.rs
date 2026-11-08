@@ -29,6 +29,7 @@ pub mod entry;
 pub mod live;
 pub mod model;
 pub mod preview;
+mod reveal;
 pub mod search;
 pub mod thumbs;
 
@@ -185,6 +186,8 @@ enum Msg {
         outcome: crate::preview::loader::Outcome,
     },
     /// 第二个进程转发来的打开请求（见 [`entry`]）；处理结果经通道答复给管道连接线程
+    /// 外壳要求在某个标签里选中项目（“在文件夹中显示”，见 [`reveal`]）
+    Reveal(crate::sysentry::shellwin::Selection),
     External(
         crate::sysentry::request::Request,
         std::sync::mpsc::Sender<crate::sysentry::request::Reply>,
@@ -268,6 +271,8 @@ pub struct Controller {
     preview: preview::PreviewUi,
     /// 系统入口接管（设置面板），见 [`entry`]
     entry: RefCell<EntryEnv>,
+    /// “在文件夹中显示”的外壳窗口登记，见 [`reveal`]
+    reveal: reveal::RevealUi,
 }
 
 impl Drop for Controller {
@@ -382,6 +387,7 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         keys_override: Cell::new(None),
         hwnd: Cell::new(0),
         entry: RefCell::new(env.entry),
+        reveal: reveal::RevealUi::default(),
     });
     REGISTRY.with(|r| r.borrow_mut().insert(c.id, Rc::downgrade(&c)));
     connect(window, &c);
@@ -908,6 +914,7 @@ impl Controller {
                 ));
                 self.sync_thumb_cache_usage();
             }
+            Msg::Reveal(sel) => self.on_reveal(sel),
             Msg::External(req, reply) => {
                 let r = self.handle_request(req);
                 let _ = reply.send(r);
@@ -1570,6 +1577,8 @@ impl Controller {
         } else {
             model.set_vec(infos);
         }
+        // 标签带变化（导航、新建、关闭）时同步外壳窗口登记
+        self.reveal_sync();
     }
 
     /// 与具体面板无关的状态：活动面板、单栏／双栏、侧栏高亮、状态栏（活动面板的统计）。

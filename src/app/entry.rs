@@ -149,7 +149,7 @@ impl Controller {
     }
 
     /// 打开外部请求前关闭搜索、预览与设置面板（它们盖在面板上，用户看不到新标签）。
-    fn leave_overlays(&self) {
+    pub(super) fn leave_overlays(&self) {
         self.search_dismiss();
         self.preview_close();
         self.hide_settings();
@@ -164,7 +164,7 @@ impl Controller {
     }
 
     /// 还原并把主窗口切到前台。
-    fn raise_window(&self) {
+    pub(super) fn raise_window(&self) {
         if let Some(w) = self.window.upgrade() {
             w.window().set_minimized(false);
         }
@@ -228,7 +228,7 @@ impl Controller {
                 EntryState::Taken,
                 "已接管".into(),
                 format!(
-                    "双击文件夹、驱动器和 Win+E 会打开：{}",
+                    "双击文件夹、驱动器和 Win+E 会打开：{}。浏览器等程序“在文件夹中显示”时，如果文件夹已在本应用打开，就在本应用里选中。",
                     self.entry.borrow().exe.display()
                 ),
             ),
@@ -329,7 +329,7 @@ impl Controller {
             }
         };
         let mut body = String::from(
-            "启用后，双击文件夹、驱动器以及按 Win+E 都会打开本应用；在资源管理器窗口里双击文件夹也会改在本应用中打开。\n\n只写当前用户的设置，写入前先备份到数据目录；随时可以在设置里恢复原设置。",
+            "启用后，双击文件夹、驱动器以及按 Win+E 都会打开本应用；在资源管理器窗口里双击文件夹也会改在本应用中打开。浏览器等程序“在文件夹中显示”时，如果文件夹已在本应用打开，就在本应用里选中。\n\n只写当前用户的设置，写入前先备份到数据目录；随时可以在设置里恢复原设置。",
         );
         if !pre.is_empty() {
             body.push_str("\n\n将替换以下现有设置（已备份，恢复时还原）：");
@@ -410,6 +410,8 @@ impl Controller {
             manage::notify_shell();
         }
         self.sync_entry();
+        // “在文件夹中显示”与接管共用开关（Issue #18）
+        self.reveal_refresh();
     }
 
     /// 启动自检：关联失效时询问修复或恢复；部分设置被改动时在状态栏说明。

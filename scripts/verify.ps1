@@ -25,6 +25,9 @@ Write-Host "冒烟通过：$($os.Caption) build $($os.BuildNumber)"
 Step '会话恢复（真实程序，临时数据目录）' { & (Join-Path $PSScriptRoot 'verify-session.ps1') }
 # Issue #17：单实例转发、标签复用、不可用路径答复、主实例无响应时超时独立启动（临时数据目录，注册表只读测试根）
 Step '单实例与外部打开请求（真实程序，临时数据目录）' { & (Join-Path $PSScriptRoot 'verify-instance.ps1') }
+# Issue #18：“在文件夹中显示”路由（测试根接管 + reveal-probe 调用 SHOpenFolderAndSelectItems；停用后回退资源管理器）。
+# 回退用例会短暂打开并关闭临时文件夹的资源管理器窗口；需要已解锁的交互桌面。
+Step '在文件夹中显示（真实程序，测试注册表根）' { & (Join-Path $PSScriptRoot 'verify-reveal.ps1') }
 # Issue #39：默认启动方式下窗口必须在桌面合成里可见（屏幕抓取、PrintWindow、WGC 窗口／显示器都取到主题色）。
 # 只在内存里比对颜色，不保存截图；需要已解锁的交互桌面。
 Step '窗口可见性（默认启动方式，发布前必过）' { & (Join-Path $PSScriptRoot 'verify-capture.ps1') }

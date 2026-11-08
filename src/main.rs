@@ -231,6 +231,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     controller.focus_active();
     window.run()?;
+    controller.reveal_shutdown();
     // 正常退出时再保存一次（定时保存之外的最后变化）
     if let Err(e) = controller.save_now() {
         eprintln!("{e}");

@@ -1130,5 +1130,7 @@ pub fn attach_drop(c: &Rc<Controller>, window: &MainWindow) -> bool {
         return false;
     };
     c.hwnd.set(hwnd);
+    // 有了窗口句柄才能登记为外壳窗口（“在文件夹中显示”，Issue #18；只在已接管时登记）
+    c.reveal_refresh();
     dragdrop::attach(hwnd, Rc::new(Host(Rc::downgrade(c))))
 }
