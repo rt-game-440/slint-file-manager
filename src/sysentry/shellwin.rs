@@ -21,13 +21,14 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{
-    E_NOINTERFACE, E_NOTIMPL, E_POINTER, HWND, LPARAM, RECT, SHANDLE_PTR, VARIANT_BOOL,
+    DISP_E_MEMBERNOTFOUND, DISP_E_UNKNOWNNAME, E_INVALIDARG, E_NOINTERFACE, E_NOTIMPL, E_POINTER,
+    HWND, LPARAM, RECT, SHANDLE_PTR, VARIANT_BOOL,
 };
 use windows::Win32::System::Com::{
     CLSCTX_ALL, CoCreateInstance, CoTaskMemFree, DISPATCH_FLAGS, DISPPARAMS, EXCEPINFO, IDispatch,
     IDispatch_Impl, IServiceProvider, IServiceProvider_Impl, ITypeInfo,
 };
-use windows::Win32::System::Ole::IOleWindow_Impl;
+use windows::Win32::System::Ole::{DispGetIDsOfNames, DispInvoke, IOleWindow_Impl, LoadRegTypeLib};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::System::Variant::{InitVariantFromBuffer, VARIANT};
 use windows::Win32::UI::Controls::LPFNSVADDPROPSHEETPAGE;
@@ -38,8 +39,11 @@ use windows::Win32::UI::Shell::{
     SHGetNameFromIDList, SHParseDisplayName, SIGDN_FILESYSPATH, SWC_BROWSER, ShellWindows,
     UrlCreateFromPathW,
 };
-use windows::Win32::UI::WindowsAndMessaging::MSG;
-use windows::core::{BOOL, BSTR, GUID, HRESULT, Interface, PCWSTR, PWSTR, Ref, Result, implement};
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, MSG};
+use windows::core::{
+    BOOL, BSTR, GUID, HRESULT, Interface, InterfaceRef, PCWSTR, PWSTR, Ref, Result, implement,
+};
+use windows_core::ComObjectInterface;
 
 /// `SVSI_SELECT`：选中。
 pub const SVSI_SELECT: u32 = 0x1;
@@ -158,6 +162,8 @@ fn guid_name(g: &GUID) -> String {
 // ---------- 槽的共享状态 ----------
 
 struct SlotState {
+    /// 脚本（PowerShell 的 COM 适配器只认类型信息）用来发现成员的类型库信息
+    infos: Rc<TypeInfos>,
     slot: u64,
     folder: RefCell<PathBuf>,
     hwnd: isize,
@@ -256,45 +262,289 @@ impl IShellView_Impl for View_Impl {
     }
 }
 
-// ---------- 文档：IDispatch + IServiceProvider ----------
+// ---------- 后期绑定：脚本经 IDispatch 读到的只读属性（Issue #51） ----------
 
-#[implement(IDispatch, IServiceProvider)]
-struct Document {
-    view: IShellView,
-    trace: Trace,
+const DISPATCH_METHOD: u16 = 0x1;
+const DISPATCH_PROPERTYGET: u16 = 0x2;
+
+/// 本对象树用到的类型库信息（Shell32 与 SHDocVw 类型库；任何一个取不到就退回手写名称表）。
+#[derive(Default)]
+struct TypeInfos {
+    app: Option<ITypeInfo>,
+    doc: Option<ITypeInfo>,
+    folder: Option<ITypeInfo>,
+    item: Option<ITypeInfo>,
+}
+
+fn typeinfo_of(lib: &windows::Win32::System::Com::ITypeLib, iid: &GUID) -> Option<ITypeInfo> {
+    // SAFETY: lib 有效，iid 是有效 GUID。
+    unsafe { lib.GetTypeInfoOfGuid(iid).ok() }
+}
+
+fn load_typeinfos() -> TypeInfos {
+    // SAFETY: 参数都是有效值；LoadRegTypeLib 只读注册表里的类型库登记。
+    let load = |libid: u128, major: u16, minor: u16| unsafe {
+        LoadRegTypeLib(&GUID::from_u128(libid), major, minor, 0).ok()
+    };
+    let mut t = TypeInfos::default();
+    if let Some(lib) = load(0xEAB22AC0_30C1_11CF_A7EB_0000C05BAE0B, 1, 1) {
+        t.app = typeinfo_of(&lib, &IWebBrowserApp::IID);
+    }
+    if let Some(lib) = load(0x50A7E9B0_70EF_11D1_B75A_00A0C90564FE, 1, 0) {
+        // IShellFolderViewDual（Document）、Folder3（Document.Folder）、FolderItem2（…Self）
+        t.doc = typeinfo_of(
+            &lib,
+            &GUID::from_u128(0xE7A1AF80_4D96_11CF_960C_0080C7F4EE85),
+        );
+        t.folder = typeinfo_of(
+            &lib,
+            &GUID::from_u128(0xA7AE5F64_C4D7_4D7F_9307_4D24EE54B841),
+        );
+        t.item = typeinfo_of(
+            &lib,
+            &GUID::from_u128(0xEDC817AA_92B8_11D1_B075_00C04FC33AA5),
+        );
+    }
+    t
+}
+
+/// 名称 → DISPID：有类型信息时用类型库的编号（与真实资源管理器一致），否则用手写表。
+fn resolve_ids(
+    ti: &Option<ITypeInfo>,
+    table: &[(&str, i32)],
+    names: *const PCWSTR,
+    count: u32,
+    ids: *mut i32,
+) -> Result<()> {
+    match ti {
+        // SAFETY: 参数由调用方按 IDispatch 约定提供。
+        Some(t) => unsafe { DispGetIDsOfNames(t, names, count, ids) },
+        None => lookup_ids(table, names, count, ids),
+    }
+}
+
+/// DISPID → 手写表里的成员序号（用名称在类型信息里反查编号，保证与 `resolve_ids` 一致）。
+fn member_of(ti: &Option<ITypeInfo>, table: &[(&str, i32)], id: i32) -> Option<i32> {
+    table.iter().find_map(|(name, fallback)| {
+        let got = match ti {
+            Some(t) => {
+                let w: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+                let p = PCWSTR(w.as_ptr());
+                let mut out = -1i32;
+                // SAFETY: p 以 0 结尾；out 为单个元素的输出。
+                unsafe { DispGetIDsOfNames(t, &p, 1, &mut out) }
+                    .ok()
+                    .map(|_| out)
+            }
+            None => Some(*fallback),
+        };
+        (got == Some(id)).then_some(*fallback)
+    })
+}
+
+/// `GetIDsOfNames` 的手写实现：名称不区分大小写，未知名称返回 `DISP_E_UNKNOWNNAME`。
+fn lookup_ids(
+    table: &[(&str, i32)],
+    names: *const PCWSTR,
+    count: u32,
+    ids: *mut i32,
+) -> Result<()> {
+    if names.is_null() || ids.is_null() || count == 0 {
+        return Err(E_INVALIDARG.into());
+    }
+    let mut result = Ok(());
+    for i in 0..count as usize {
+        // SAFETY: 调用方保证 names／ids 各有 count 个元素。
+        let (name, slot) = unsafe { ((*names.add(i)).to_string().unwrap_or_default(), ids.add(i)) };
+        // 命名参数（i > 0）：本对象的属性都没有参数，一律未知
+        let hit = if i == 0 {
+            table
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(&name))
+                .map(|(_, id)| *id)
+        } else {
+            None
+        };
+        // SAFETY: slot 指向调用方提供的 DISPID 数组元素。
+        unsafe { *slot = hit.unwrap_or(-1) };
+        if hit.is_none() {
+            result = Err(DISP_E_UNKNOWNNAME.into());
+        }
+    }
+    result
+}
+
+/// 只读属性的 `Invoke`：属性读取（和无参方法）按 `get` 求值写入 `result`；写属性等一律返回成员不存在。
+fn invoke_get(
+    flags: DISPATCH_FLAGS,
+    result: *mut VARIANT,
+    get: impl FnOnce() -> Result<VARIANT>,
+) -> Result<()> {
+    if flags.0 & (DISPATCH_PROPERTYGET | DISPATCH_METHOD) == 0 {
+        return Err(DISP_E_MEMBERNOTFOUND.into());
+    }
+    let v = get()?;
+    if !result.is_null() {
+        // SAFETY: result 由调用方提供且按约定未初始化；ptr::write 不析构旧值。
+        unsafe { std::ptr::write(result, v) };
+    }
+    Ok(())
+}
+
+fn folder_url(folder: &Path) -> Result<BSTR> {
+    let w = wide(folder);
+    let mut buf = vec![0u16; 4096];
+    let mut n = buf.len() as u32;
+    // SAFETY: 输入以 0 结尾；输出缓冲区长度为 n。
+    unsafe { UrlCreateFromPathW(PCWSTR(w.as_ptr()), PWSTR(buf.as_mut_ptr()), &mut n, 0)? };
+    Ok(BSTR::from_wide(&buf[..n as usize]))
+}
+
+fn folder_name(f: &Path) -> String {
+    f.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| f.display().to_string())
+}
+
+/// `Document.Folder`（标题与自身）、`Document.Folder.Self`（路径与名称）上的只读对象。
+#[derive(Clone, Copy, Debug)]
+enum PropKind {
+    Folder,
+    FolderItem,
+}
+
+const FOLDER_NAMES: &[(&str, i32)] = &[("Title", 0), ("Self", 1)];
+const ITEM_NAMES: &[(&str, i32)] = &[
+    ("Path", 0),
+    ("Name", 1),
+    ("IsFolder", 2),
+    ("IsFileSystem", 3),
+    ("IsBrowsable", 4),
+];
+const DOC_NAMES: &[(&str, i32)] = &[("Folder", 0)];
+
+#[implement(IDispatch)]
+struct PropObj {
+    kind: PropKind,
+    state: Rc<SlotState>,
+}
+
+impl PropObj_Impl {
+    fn info(&self) -> &Option<ITypeInfo> {
+        match self.kind {
+            PropKind::Folder => &self.state.infos.folder,
+            PropKind::FolderItem => &self.state.infos.item,
+        }
+    }
 }
 
 #[allow(non_snake_case)]
-impl IDispatch_Impl for Document_Impl {
+impl IDispatch_Impl for PropObj_Impl {
     fn GetTypeInfoCount(&self) -> Result<u32> {
-        Err(E_NOTIMPL.into())
+        Ok(self.info().is_some() as u32)
     }
-    fn GetTypeInfo(&self, _i: u32, _l: u32) -> Result<ITypeInfo> {
-        Err(E_NOTIMPL.into())
+    fn GetTypeInfo(&self, i: u32, _l: u32) -> Result<ITypeInfo> {
+        match (self.info(), i) {
+            (Some(t), 0) => Ok(t.clone()),
+            _ => Err(E_NOTIMPL.into()),
+        }
     }
     fn GetIDsOfNames(
         &self,
         _riid: *const GUID,
-        _names: *const PCWSTR,
-        _c: u32,
+        names: *const PCWSTR,
+        c: u32,
         _l: u32,
-        _ids: *mut i32,
+        ids: *mut i32,
     ) -> Result<()> {
-        Err(E_NOTIMPL.into())
+        let (table, ti) = match self.kind {
+            PropKind::Folder => (FOLDER_NAMES, &self.state.infos.folder),
+            PropKind::FolderItem => (ITEM_NAMES, &self.state.infos.item),
+        };
+        resolve_ids(ti, table, names, c, ids)
     }
     fn Invoke(
         &self,
         id: i32,
         _riid: *const GUID,
         _l: u32,
-        _f: DISPATCH_FLAGS,
+        f: DISPATCH_FLAGS,
         _p: *const DISPPARAMS,
-        _r: *mut VARIANT,
+        r: *mut VARIANT,
+        _e: *mut EXCEPINFO,
+        _a: *mut u32,
+    ) -> Result<()> {
+        let folder = self.state.folder.borrow().clone();
+        (self.state.trace)(&format!("{:?}::Invoke {id}", self.kind));
+        let (table, ti) = match self.kind {
+            PropKind::Folder => (FOLDER_NAMES, &self.state.infos.folder),
+            PropKind::FolderItem => (ITEM_NAMES, &self.state.infos.item),
+        };
+        let id = member_of(ti, table, id).unwrap_or(-1000);
+        invoke_get(f, r, || match (self.kind, id) {
+            (PropKind::Folder, 0) => Ok(VARIANT::from(folder_name(&folder).as_str())),
+            (PropKind::Folder, 1) => Ok(VARIANT::from(IDispatch::from(PropObj {
+                kind: PropKind::FolderItem,
+                state: self.state.clone(),
+            }))),
+            (PropKind::FolderItem, 0) => Ok(VARIANT::from(folder.display().to_string().as_str())),
+            (PropKind::FolderItem, 1) => Ok(VARIANT::from(folder_name(&folder).as_str())),
+            (PropKind::FolderItem, 2..=4) => Ok(VARIANT::from(true)),
+            _ => Err(DISP_E_MEMBERNOTFOUND.into()),
+        })
+    }
+}
+
+// ---------- 文档：IDispatch + IServiceProvider ----------
+
+#[implement(IDispatch, IServiceProvider)]
+struct Document {
+    view: IShellView,
+    state: Rc<SlotState>,
+    trace: Trace,
+}
+
+#[allow(non_snake_case)]
+impl IDispatch_Impl for Document_Impl {
+    fn GetTypeInfoCount(&self) -> Result<u32> {
+        Ok(self.state.infos.doc.is_some() as u32)
+    }
+    fn GetTypeInfo(&self, i: u32, _l: u32) -> Result<ITypeInfo> {
+        match (&self.state.infos.doc, i) {
+            (Some(t), 0) => Ok(t.clone()),
+            _ => Err(E_NOTIMPL.into()),
+        }
+    }
+    fn GetIDsOfNames(
+        &self,
+        _riid: *const GUID,
+        names: *const PCWSTR,
+        c: u32,
+        _l: u32,
+        ids: *mut i32,
+    ) -> Result<()> {
+        resolve_ids(&self.state.infos.doc, DOC_NAMES, names, c, ids)
+    }
+    fn Invoke(
+        &self,
+        id: i32,
+        _riid: *const GUID,
+        _l: u32,
+        f: DISPATCH_FLAGS,
+        _p: *const DISPPARAMS,
+        r: *mut VARIANT,
         _e: *mut EXCEPINFO,
         _a: *mut u32,
     ) -> Result<()> {
         (self.trace)(&format!("Document::Invoke {id}"));
-        Err(E_NOTIMPL.into())
+        let id = member_of(&self.state.infos.doc, DOC_NAMES, id).unwrap_or(-1000);
+        invoke_get(f, r, || match id {
+            0 => Ok(VARIANT::from(IDispatch::from(PropObj {
+                kind: PropKind::Folder,
+                state: self.state.clone(),
+            }))),
+            _ => Err(DISP_E_MEMBERNOTFOUND.into()),
+        })
     }
 }
 
@@ -330,10 +580,24 @@ impl IServiceProvider_Impl for Document_Impl {
 
 #[implement(IWebBrowserApp)]
 struct BrowserApp {
+    /// SHDocVw 类型库里 `IWebBrowserApp` 的类型信息：后期绑定的名称解析与分发都交给它（Issue #51）；
+    /// 类型库不可用时为 `None`，此时后期绑定读取返回 `E_NOTIMPL`。
+    typeinfo: Option<ITypeInfo>,
     hwnd: isize,
     doc: IDispatch,
     state: Rc<SlotState>,
     trace: Trace,
+}
+
+const APP_NAME: &str = "Slint File Manager";
+
+impl BrowserApp_Impl {
+    fn window_rect(&self) -> RECT {
+        let mut r = RECT::default();
+        // SAFETY: r 为有效输出；窗口句柄失效时调用失败，保持全 0。
+        let _ = unsafe { GetWindowRect(HWND(self.hwnd as _), &mut r) };
+        r
+    }
 }
 
 macro_rules! notimpl {
@@ -345,34 +609,51 @@ macro_rules! notimpl {
 #[allow(non_snake_case)]
 impl IDispatch_Impl for BrowserApp_Impl {
     fn GetTypeInfoCount(&self) -> Result<u32> {
-        Err(E_NOTIMPL.into())
+        Ok(self.typeinfo.is_some() as u32)
     }
-    fn GetTypeInfo(&self, _i: u32, _l: u32) -> Result<ITypeInfo> {
-        Err(E_NOTIMPL.into())
+    fn GetTypeInfo(&self, i: u32, _l: u32) -> Result<ITypeInfo> {
+        match (&self.typeinfo, i) {
+            (Some(t), 0) => Ok(t.clone()),
+            _ => Err(E_NOTIMPL.into()),
+        }
     }
     fn GetIDsOfNames(
         &self,
         _riid: *const GUID,
-        _names: *const PCWSTR,
-        _c: u32,
+        names: *const PCWSTR,
+        c: u32,
         _l: u32,
-        _ids: *mut i32,
+        ids: *mut i32,
     ) -> Result<()> {
-        Err(E_NOTIMPL.into())
+        let Some(t) = &self.typeinfo else {
+            return Err(E_NOTIMPL.into());
+        };
+        // SAFETY: 参数由调用方按 IDispatch 约定提供。
+        unsafe { DispGetIDsOfNames(t, names, c, ids) }
     }
     fn Invoke(
         &self,
         id: i32,
         _riid: *const GUID,
         _l: u32,
-        _f: DISPATCH_FLAGS,
-        _p: *const DISPPARAMS,
-        _r: *mut VARIANT,
-        _e: *mut EXCEPINFO,
-        _a: *mut u32,
+        f: DISPATCH_FLAGS,
+        p: *const DISPPARAMS,
+        r: *mut VARIANT,
+        e: *mut EXCEPINFO,
+        a: *mut u32,
     ) -> Result<()> {
         (self.trace)(&format!("IWebBrowserApp::Invoke {id}"));
-        Err(E_NOTIMPL.into())
+        let Some(t) = &self.typeinfo else {
+            return Err(E_NOTIMPL.into());
+        };
+        // 只开放读取（和无参方法）；写属性一律“成员不存在”
+        if f.0 & (DISPATCH_PROPERTYGET | DISPATCH_METHOD) == 0 {
+            return Err(DISP_E_MEMBERNOTFOUND.into());
+        }
+        let this: InterfaceRef<'_, IWebBrowserApp> = self.as_interface_ref();
+        // SAFETY: this 是本对象的 IWebBrowserApp 接口指针，与类型信息的布局一致（双接口）；
+        // 其余参数由调用方按 IDispatch::Invoke 约定提供。DispInvoke 经 vtable 调用下面的早期绑定实现。
+        unsafe { DispInvoke(this.as_raw(), t, id, f.0, p as *mut DISPPARAMS, r, e, a) }
     }
 }
 
@@ -389,34 +670,40 @@ impl IWebBrowser_Impl for BrowserApp_Impl {
         fn Application(&self) -> Result<IDispatch>;
         fn Parent(&self) -> Result<IDispatch>;
         fn Container(&self) -> Result<IDispatch>;
-        fn TopLevelContainer(&self) -> Result<VARIANT_BOOL>;
-        fn Type(&self) -> Result<BSTR>;
-        fn Left(&self) -> Result<i32>;
         fn SetLeft(&self, v: i32) -> Result<()>;
-        fn Top(&self) -> Result<i32>;
         fn SetTop(&self, v: i32) -> Result<()>;
-        fn Width(&self) -> Result<i32>;
         fn SetWidth(&self, v: i32) -> Result<()>;
-        fn Height(&self) -> Result<i32>;
         fn SetHeight(&self, v: i32) -> Result<()>;
-        fn Busy(&self) -> Result<VARIANT_BOOL>;
+    }
+    fn TopLevelContainer(&self) -> Result<VARIANT_BOOL> {
+        Ok(VARIANT_BOOL(-1))
+    }
+    fn Type(&self) -> Result<BSTR> {
+        Ok(BSTR::from("Document"))
+    }
+    fn Left(&self) -> Result<i32> {
+        Ok(self.window_rect().left)
+    }
+    fn Top(&self) -> Result<i32> {
+        Ok(self.window_rect().top)
+    }
+    fn Width(&self) -> Result<i32> {
+        let r = self.window_rect();
+        Ok(r.right - r.left)
+    }
+    fn Height(&self) -> Result<i32> {
+        let r = self.window_rect();
+        Ok(r.bottom - r.top)
+    }
+    fn Busy(&self) -> Result<VARIANT_BOOL> {
+        Ok(VARIANT_BOOL(0))
     }
     // 位置名与 URL：给枚举外壳窗口读取“当前文件夹”的工具（与资源管理器窗口的格式一致）
     fn LocationName(&self) -> Result<BSTR> {
-        let f = self.state.folder.borrow();
-        let name = f
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| f.display().to_string());
-        Ok(BSTR::from(name))
+        Ok(BSTR::from(folder_name(&self.state.folder.borrow())))
     }
     fn LocationURL(&self) -> Result<BSTR> {
-        let w = wide(&self.state.folder.borrow());
-        let mut buf = vec![0u16; 4096];
-        let mut n = buf.len() as u32;
-        // SAFETY: 输入以 0 结尾；输出缓冲区长度为 n。
-        unsafe { UrlCreateFromPathW(PCWSTR(w.as_ptr()), PWSTR(buf.as_mut_ptr()), &mut n, 0)? };
-        Ok(BSTR::from_wide(&buf[..n as usize]))
+        folder_url(&self.state.folder.borrow())
     }
     fn Navigate(
         &self,
@@ -442,9 +729,6 @@ impl IWebBrowserApp_Impl for BrowserApp_Impl {
         fn ClientToWindow(&self, x: *mut i32, y: *mut i32) -> Result<()>;
         fn PutProperty(&self, p: &BSTR, v: &VARIANT) -> Result<()>;
         fn GetProperty(&self, p: &BSTR) -> Result<VARIANT>;
-        fn Name(&self) -> Result<BSTR>;
-        fn FullName(&self) -> Result<BSTR>;
-        fn Path(&self) -> Result<BSTR>;
         fn StatusBar(&self) -> Result<VARIANT_BOOL>;
         fn SetStatusBar(&self, v: VARIANT_BOOL) -> Result<()>;
         fn StatusText(&self) -> Result<BSTR>;
@@ -455,6 +739,24 @@ impl IWebBrowserApp_Impl for BrowserApp_Impl {
         fn SetMenuBar(&self, v: VARIANT_BOOL) -> Result<()>;
         fn FullScreen(&self) -> Result<VARIANT_BOOL>;
         fn SetFullScreen(&self, v: VARIANT_BOOL) -> Result<()>;
+    }
+    fn Name(&self) -> Result<BSTR> {
+        Ok(BSTR::from(APP_NAME))
+    }
+    fn FullName(&self) -> Result<BSTR> {
+        Ok(BSTR::from(
+            std::env::current_exe()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        ))
+    }
+    fn Path(&self) -> Result<BSTR> {
+        Ok(BSTR::from(
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.display().to_string()))
+                .unwrap_or_default(),
+        ))
     }
     fn HWND(&self) -> Result<SHANDLE_PTR> {
         (self.trace)("IWebBrowserApp::get_HWND");
@@ -480,6 +782,7 @@ struct Entry {
 /// 本窗口在 `IShellWindows` 里的登记（每个槽一个 cookie）。丢弃时全部注销。
 pub struct ShellWindows {
     sw: IShellWindows,
+    infos: Rc<TypeInfos>,
     hwnd: isize,
     sink: Sink,
     trace: Trace,
@@ -493,8 +796,17 @@ impl ShellWindows {
     pub fn new(hwnd: isize, sink: Sink, trace: Trace) -> Result<ShellWindows> {
         // SAFETY: 调用线程已初始化 COM。
         let sw: IShellWindows = unsafe { CoCreateInstance(&ShellWindows, None, CLSCTX_ALL)? };
+        let infos = Rc::new(load_typeinfos());
+        trace(&format!(
+            "后期绑定类型信息：浏览器 {} 文档 {} 文件夹 {} 项目 {}",
+            infos.app.is_some(),
+            infos.doc.is_some(),
+            infos.folder.is_some(),
+            infos.item.is_some()
+        ));
         Ok(ShellWindows {
             sw,
+            infos,
             hwnd,
             sink,
             trace,
@@ -531,6 +843,7 @@ impl ShellWindows {
         let v = Pidl::parse(folder)?.variant()?;
         let empty = VARIANT::default();
         let state = Rc::new(SlotState {
+            infos: self.infos.clone(),
             slot,
             folder: RefCell::new(folder.to_path_buf()),
             hwnd: self.hwnd,
@@ -540,10 +853,12 @@ impl ShellWindows {
         let view: IShellView = View(state.clone()).into();
         let doc: IDispatch = Document {
             view,
+            state: state.clone(),
             trace: self.trace.clone(),
         }
         .into();
         let app: IWebBrowserApp = BrowserApp {
+            typeinfo: self.infos.app.clone(),
             hwnd: self.hwnd,
             doc,
             state: state.clone(),
