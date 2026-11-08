@@ -23,7 +23,8 @@ serde_json = "1"
 libwebp-sys = "0.14"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp"] }
 fast_image_resize = "6"
-# Windows API：默认应用打开（ShellExecuteExW）、资源管理器同款名称排序（StrCmpLogicalW）、读取系统文字缩放
+# Windows API：默认应用打开（ShellExecuteExW）、资源管理器同款名称排序（StrCmpLogicalW）、读取系统文字缩放、
+# 单实例命名管道（Pipes、RemoteDesktop 的会话号，Issue #17）
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
@@ -37,7 +38,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Ioctl",
     "Win32_System_Memory",
+    "Win32_System_Pipes",
     "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }

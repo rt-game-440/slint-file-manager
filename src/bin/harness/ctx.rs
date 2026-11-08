@@ -7,8 +7,8 @@ use i_slint_backend_testing::{
 use slint::ComponentHandle;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint_file_manager::app::{
-    self, Controller, DriveSource, Env, LiveEnv, Loader, MenuCall, MenuMode, Opener, OsDrag,
-    ThumbEnv, ThumbMode, XferEnv,
+    self, Controller, DriveSource, EntryEnv, Env, LiveEnv, Loader, MenuCall, MenuMode, Opener,
+    OsDrag, ThumbEnv, ThumbMode, XferEnv,
 };
 use slint_file_manager::browse::places::Drive;
 use slint_file_manager::browse::session::SessionStore;
@@ -154,6 +154,8 @@ pub struct Opts {
     pub thumb_cache: Option<PathBuf>,
     /// 设置文件（`settings.json`，含缩略图缓存上限与 `preview_gif_autoplay`）；`None` 全用默认值
     pub settings_file: Option<PathBuf>,
+    /// 系统入口接管的注册表根与备份（内存实现或测试根）；`None` 为“不可用”
+    pub entry: Option<EntryEnv>,
 }
 
 /// harness 里文件名含这个字的图片被当作“慢文件”：先超时，之后由 [`Controller::finish_slow_thumbs`] 补图。
@@ -171,6 +173,7 @@ impl Default for Opts {
             search: None,
             thumb_cache: None,
             settings_file: None,
+            entry: None,
         }
     }
 }
@@ -241,6 +244,10 @@ impl Ctx {
                     ],
                     os_drag: OsDrag::Record(dragged_out.clone()),
                 },
+                // 绝不使用真实的 HKCU\Software\Classes：默认不可用，需要时注入内存实现或测试根
+                entry: o
+                    .entry
+                    .unwrap_or_else(|| EntryEnv::unavailable("harness 未注入注册表根")),
             },
         );
         win.show()?;

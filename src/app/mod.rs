@@ -22,13 +22,17 @@
 //!   后台解码、不改变任何选择，关闭后焦点回到原面板。
 //! - 缩略图（[`thumbs`]）：网格可见范围变化、换目录、切换视图或面板时重新生成请求；结果按文件身份写回对应行。
 //!   harness 使用 [`ThumbMode::Manual`]，由 [`Controller::pump_thumbs`] 显式执行。
+//! - 系统入口（[`entry`]）：外部打开请求（启动参数或第二个进程转发）复用或新建标签；“更多 → 设置…”里的接管开关、
+//!   状态与修复／恢复；启动自检。注册表根与备份位置由 [`EntryEnv`] 注入，harness 用内存实现或测试根。
 
+pub mod entry;
 pub mod live;
 pub mod model;
 pub mod preview;
 pub mod search;
 pub mod thumbs;
 
+pub use entry::{EntryEnv, EntryStatus, external_handler};
 pub use live::{DriveSource, LiveEnv};
 pub use search::{SearchEnv, SearchSnapshot};
 
@@ -129,12 +133,15 @@ pub struct Env {
     pub thumbs: ThumbEnv,
     /// 新建、剪贴板与拖放的外部环境（产品用系统剪贴板与系统拖放，harness 用内存剪贴板与记录）。
     pub xfer: XferEnv,
+    /// 系统入口接管（设置面板）的注册表根、程序路径与备份位置（见 [`entry`]）。
+    pub entry: EntryEnv,
 }
 
 impl Env {
     pub fn production(start: Option<PathBuf>, store: Option<SessionStore>) -> Env {
         let thumbs = ThumbEnv::production(store.as_ref().map(SessionStore::dir));
         Env {
+            entry: EntryEnv::production(store.as_ref().map(SessionStore::dir)),
             start,
             home: shell::home_dir(),
             loader: Loader::Threaded,
@@ -177,6 +184,11 @@ enum Msg {
         path: PathBuf,
         outcome: crate::preview::loader::Outcome,
     },
+    /// 第二个进程转发来的打开请求（见 [`entry`]）；处理结果经通道答复给管道连接线程
+    External(
+        crate::sysentry::request::Request,
+        std::sync::mpsc::Sender<crate::sysentry::request::Reply>,
+    ),
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -254,6 +266,8 @@ pub struct Controller {
     hwnd: Cell<isize>,
     /// 大图预览（Space），见 [`preview`]
     preview: preview::PreviewUi,
+    /// 系统入口接管（设置面板），见 [`entry`]
+    entry: RefCell<EntryEnv>,
 }
 
 impl Drop for Controller {
@@ -367,6 +381,7 @@ pub fn wire(window: &MainWindow, env: Env) -> Rc<Controller> {
         state: RefCell::default(),
         keys_override: Cell::new(None),
         hwnd: Cell::new(0),
+        entry: RefCell::new(env.entry),
     });
     REGISTRY.with(|r| r.borrow_mut().insert(c.id, Rc::downgrade(&c)));
     connect(window, &c);
@@ -466,6 +481,11 @@ fn connect(w: &MainWindow, c: &Rc<Controller>) {
     on!(on_thumb_cache_menu_opened, c => || c.sync_thumb_cache_usage());
     on!(on_thumb_cache_set_capacity, c => |mb| c.set_thumb_cache_capacity(mb));
     on!(on_thumb_cache_clear, c => || c.clear_thumb_cache());
+    on!(on_settings_open, c => || c.show_settings());
+    on!(on_settings_close, c => || c.hide_settings());
+    on!(on_entry_toggle, c => |on| c.entry_toggle(on));
+    on!(on_entry_repair, c => || c.entry_take());
+    on!(on_entry_restore, c => || c.entry_restore());
     {
         let bus = w.global::<crate::RenameBus>();
         let c1 = c.clone();
@@ -887,6 +907,10 @@ impl Controller {
                     thumbs::bytes_text(freed)
                 ));
                 self.sync_thumb_cache_usage();
+            }
+            Msg::External(req, reply) => {
+                let r = self.handle_request(req);
+                let _ = reply.send(r);
             }
         }
     }

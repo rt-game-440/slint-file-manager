@@ -9,9 +9,10 @@ import { BrowserPane } from "browser-pane.slint";
 import { ModalDialog } from "dialog.slint";
 import { ScopeSegment, SearchBox, SearchPanel } from "search.slint";
 import { PreviewOverlay } from "preview.slint";
-import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus, PreviewState } from "types.slint";
+import { SettingsPanel } from "settings.slint";
+import { ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus, PreviewState, EntryState, EntryView } from "types.slint";
 
-export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus, PreviewState }
+export { Theme, ContentState, ViewMode, SortKey, NavKey, FileItem, Crumb, TabInfo, PaneView, SidebarEntry, SearchItem, SearchView, SearchPhase, SearchNotice, DragPhase, DropHit, RenameBus, DragBus, PreviewState, EntryState, EntryView }
 
 component SidebarRow inherits Rectangle {
     in property <SidebarEntry> entry;
@@ -186,6 +187,10 @@ export component MainWindow inherits Window {
     // 缩略图缓存（“更多”菜单）：占用说明与当前容量上限（MiB），打开菜单时由 Rust 刷新
     in property <string> thumb-cache-usage;
     in property <int> thumb-cache-capacity-mb: 512;
+    // 设置面板（Issue #17，“更多 → 设置…”）：是否显示、系统入口一节的状态、焦点令牌
+    in property <bool> settings-visible: false;
+    in property <EntryView> entry-view;
+    in property <int> settings-token;
     // 网格可见项范围（缩略图调度读取）
     out property <int> left-visible-first: left-pane.visible-first;
     out property <int> left-visible-end: left-pane.visible-end;
@@ -278,6 +283,12 @@ export component MainWindow inherits Window {
     callback thumb-cache-menu-opened();
     callback thumb-cache-set-capacity(int);
     callback thumb-cache-clear();
+    // 设置面板：打开、关闭；系统入口开关（参数为请求的新状态）、修复／重新接管、恢复原设置
+    callback settings-open();
+    callback settings-close();
+    callback entry-toggle(bool);
+    callback entry-repair();
+    callback entry-restore();
     callback request-close();
     callback search-edited(string);
     callback search-submit();
@@ -927,6 +938,24 @@ export component MainWindow inherits Window {
                                             more-menu.close();
                                         }
                                     }
+
+                                    Rectangle {
+                                        height: 9px;
+                                        Rectangle {
+                                            y: 4px;
+                                            height: 1px;
+                                            background: Theme.divider;
+                                        }
+                                    }
+
+                                    MenuRow {
+                                        text: "设置…";
+                                        checked: false;
+                                        clicked => {
+                                            more-menu.close();
+                                            root.settings-open();
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1310,6 +1339,26 @@ export component MainWindow inherits Window {
         }
         toggle-play => {
             root.preview-toggle-play();
+        }
+    }
+
+    // ---------- 设置面板（在对话框之下：启用确认等对话框盖在面板上） ----------
+    if root.settings-visible: SettingsPanel {
+        width: root.width;
+        height: root.height;
+        entry: root.entry-view;
+        focus-token: root.settings-token;
+        close => {
+            root.settings-close();
+        }
+        entry-toggle(on) => {
+            root.entry-toggle(on);
+        }
+        entry-repair => {
+            root.entry-repair();
+        }
+        entry-restore => {
+            root.entry-restore();
         }
     }
 

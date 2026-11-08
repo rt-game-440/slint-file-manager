@@ -1,0 +1,246 @@
+// 设置面板（Issue #17）：覆盖整个窗口的卡片，从“更多 → 设置…”打开，Esc 或右上角 × 关闭。
+// 目前只有“系统入口”一节：用本应用打开文件夹的开关、状态行与修复／恢复按钮。状态全部由 Rust 写入。
+// 标识：面板 groupbox “设置”；开关 accessible-role 为 switch，标签“用本应用打开文件夹”；
+// 状态行 accessible-label “系统入口状态”（值为标题），说明 “系统入口说明”。
+import { Theme } from "theme.slint";
+import { IconButton, TextButton } from "controls.slint";
+import { EntryState, EntryView } from "types.slint";
+
+// 开关：开为蓝色、关为灰色；不可用时变淡且不响应。
+component Toggle inherits Rectangle {
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback toggled();
+
+    width: 40px * Theme.text-scale;
+    height: 22px * Theme.text-scale;
+    border-radius: self.height / 2;
+    background: !root.enabled ? Theme.divider : root.checked ? (ta.has-hover ? #2a64cf : Theme.accent) : (ta.has-hover ? #9aa1ad : #b4b9c2);
+    accessible-role: switch;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.toggled();
+        }
+    }
+    animate background { duration: 120ms; }
+
+    Rectangle {
+        width: parent.height - 6px;
+        height: self.width;
+        y: 3px;
+        x: root.checked ? parent.width - self.width - 3px : 3px;
+        border-radius: self.width / 2;
+        background: #ffffff;
+        animate x { duration: 120ms; easing: ease-out; }
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.toggled();
+        }
+    }
+}
+
+export component SettingsPanel inherits Rectangle {
+    in property <EntryView> entry;
+    // 每次打开（或对话框关闭后回到面板）加一，让键盘焦点回到面板
+    in property <int> focus-token;
+    callback close();
+    // 参数为请求的新状态：true 启用接管，false 恢复原设置
+    callback entry-toggle(bool);
+    // 修复（关联失效）或重新接管（冲突）
+    callback entry-repair();
+    callback entry-restore();
+
+    property <bool> switch-on: root.entry.state == EntryState.taken || root.entry.state == EntryState.conflict || root.entry.state == EntryState.stale;
+    property <color> state-color: root.entry.state == EntryState.taken ? Theme.cloud-ok : (root.entry.state == EntryState.conflict || root.entry.state == EntryState.stale) ? Theme.warning : Theme.text-secondary;
+
+    changed focus-token => {
+        scope.focus();
+    }
+
+    background: #1f232933;
+    accessible-role: groupbox;
+    accessible-label: "设置";
+
+    // 吞掉面板外的鼠标操作
+    TouchArea { }
+
+    scope := FocusScope {
+        init => {
+            self.focus();
+        }
+        key-pressed(e) => {
+            if (e.text == Key.Escape) {
+                root.close();
+                return accept;
+            }
+            // 其余按键不落到下面的浏览面板
+            accept
+        }
+
+        card := Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: max(24px, (parent.height - self.height) / 3);
+            width: min(parent.width - 48px, 540px * Theme.text-scale);
+            height: content.preferred-height;
+            background: Theme.surface;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.divider;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 6px;
+            drop-shadow-color: #00000033;
+
+            content := VerticalLayout {
+                padding: 22px;
+                padding-top: 16px;
+                spacing: 14px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "设置";
+                        color: Theme.text;
+                        font-size: Theme.font-title;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+
+                    close-button := IconButton {
+                        icon: "win-close";
+                        label: "关闭设置";
+                        clicked => {
+                            root.close();
+                        }
+                    }
+                }
+
+                Text {
+                    text: "系统入口";
+                    color: Theme.text;
+                    font-size: Theme.font-heading;
+                    font-weight: 600;
+                }
+
+                HorizontalLayout {
+                    spacing: 16px;
+                    VerticalLayout {
+                        spacing: 3px;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: "用本应用打开文件夹";
+                            color: Theme.text;
+                            font-size: Theme.font;
+                            wrap: word-wrap;
+                        }
+
+                        Text {
+                            text: "双击文件夹或驱动器、按 Win+E 时打开本应用。资源管理器窗口里双击文件夹也会改在本应用中打开。";
+                            color: Theme.text-secondary;
+                            font-size: Theme.font-small;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        entry-switch := Toggle {
+                            label: "用本应用打开文件夹";
+                            checked: root.switch-on;
+                            enabled: root.entry.state != EntryState.unavailable;
+                            toggled => {
+                                root.entry-toggle(!root.switch-on);
+                            }
+                        }
+                    }
+                }
+
+                status-box := Rectangle {
+                    background: Theme.chrome-bg;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: (root.entry.state == EntryState.conflict || root.entry.state == EntryState.stale) ? #ecd3a6 : Theme.divider;
+                    height: status-layout.preferred-height;
+
+                    status-layout := VerticalLayout {
+                        padding: 12px;
+                        spacing: 6px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 8px * Theme.text-scale;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 8px * Theme.text-scale;
+                                        height: self.width;
+                                        border-radius: self.width / 2;
+                                        background: root.state-color;
+                                    }
+                                }
+                            }
+
+                            entry-status := Text {
+                                text: root.entry.title;
+                                color: root.state-color;
+                                font-size: Theme.font;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                accessible-role: text;
+                                accessible-label: "系统入口状态";
+                                accessible-value: root.entry.title;
+                            }
+                        }
+
+                        entry-detail := Text {
+                            text: root.entry.detail;
+                            color: Theme.text-secondary;
+                            font-size: Theme.font-small;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: "系统入口说明";
+                            accessible-value: root.entry.detail;
+                        }
+
+                        if root.entry.state == EntryState.conflict || root.entry.state == EntryState.stale: HorizontalLayout {
+                            alignment: start;
+                            spacing: 10px;
+                            padding-top: 4px;
+
+                            TextButton {
+                                text: root.entry.state == EntryState.stale ? "修复" : "重新接管";
+                                clicked => {
+                                    root.entry-repair();
+                                }
+                            }
+
+                            TextButton {
+                                text: "恢复原设置";
+                                clicked => {
+                                    root.entry-restore();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "只改当前用户的设置，写入前先备份；不改动系统的“打开”命令，此电脑、控制面板等仍由资源管理器打开。随时可以在这里恢复原设置，手工恢复方法见随附的 system-entry.md。";
+                    color: Theme.text-secondary;
+                    font-size: Theme.font-small;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}

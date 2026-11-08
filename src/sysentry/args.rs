@@ -102,6 +102,32 @@ pub fn strip_program(cmdline: &str) -> &str {
     rest.trim_start()
 }
 
+/// 原始参数里从 [`ENTRY_FLAG`] 开始的部分（引号外、独立成词）；没有该标记时返回 `None`。
+///
+/// 本应用注册的命令总是把 `--entry` 放在最后（`"<exe>" --entry "%1"`），所以它前面的部分是普通启动参数
+/// （`--data-dir=` 等，交给 `std::env::args()` 解析），从它开始的部分按原始命令行解析，保留 `"C:\"` 的反斜杠。
+pub fn split_entry(tail: &str) -> Option<&str> {
+    let mut quoted = false;
+    let mut prev_space = true;
+    for (i, c) in tail.char_indices() {
+        if c == '"' {
+            quoted = !quoted;
+        } else if !quoted && prev_space && c == '-' {
+            let rest = &tail[i..];
+            let n = ENTRY_FLAG.len();
+            if rest.len() >= n
+                && rest.is_char_boundary(n)
+                && rest[..n].eq_ignore_ascii_case(ENTRY_FLAG)
+                && rest[n..].chars().next().is_none_or(char::is_whitespace)
+            {
+                return Some(rest);
+            }
+        }
+        prev_space = !quoted && c.is_whitespace();
+    }
+    None
+}
+
 /// 按 explorer 规则切分参数：引号外的逗号分隔；每段去掉首尾空白与全部引号（路径里不可能有引号）；
 /// 段首以 `/` 或 `-` 开头、后跟空白的开关被拆出（如 `/n /select`、`--entry C:\a b`）。空段被丢弃。
 pub fn tokenize(tail: &str) -> Vec<String> {
@@ -612,6 +638,21 @@ mod tests {
         let r = parse(r"C:\a,D:\b", None);
         assert_eq!(r.open, path(r"C:\a"));
         assert_eq!(r.unsupported, vec![r"D:\b"]);
+    }
+
+    #[test]
+    fn splits_at_entry_flag() {
+        assert_eq!(
+            split_entry(r#"--data-dir=C:\d --entry "C:\""#),
+            Some(r#"--entry "C:\""#)
+        );
+        assert_eq!(split_entry("--entry"), Some("--entry"));
+        assert_eq!(split_entry(r#"--ENTRY "D:\a""#), Some(r#"--ENTRY "D:\a""#));
+        // 引号里的、或作为别的参数一部分的 --entry 不算
+        assert_eq!(split_entry(r#"--open="C:\x --entry" --smoke"#), None);
+        assert_eq!(split_entry(r"--entryx C:\"), None);
+        assert_eq!(split_entry("a--entry"), None);
+        assert_eq!(split_entry("--smoke"), None);
     }
 
     #[test]

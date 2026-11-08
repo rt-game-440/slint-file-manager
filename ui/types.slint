@@ -177,3 +177,24 @@ export struct SearchView {
     // 有选中项，可打开、可定位
     can-act: bool,
 }
+
+// 系统入口接管的状态（设置面板，Issue #17）。
+export enum EntryState {
+    // 接管功能不可用（没有数据目录、测试根变量无效等），说明见 detail
+    unavailable,
+    not-taken,
+    taken,
+    // 部分设置被别的程序改动
+    conflict,
+    // 登记的命令指向别的程序路径（程序被移动或旧路径已不存在）
+    stale,
+}
+
+// 设置面板“系统入口”一节的显示内容（Rust 写入）。
+export struct EntryView {
+    state: EntryState,
+    // 状态行标题：已接管／未接管／冲突／关联失效／不可用
+    title: string,
+    // 状态说明（路径、被改动的项等）
+    detail: string,
+}

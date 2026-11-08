@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 导出元素树（JSON） | `powershell -File scripts/harness.ps1 tree --scenario grid-selected --out artifacts/tree.json` | JSON |
 | 磁盘／收藏／目录变化同步（侧栏、收藏持久化、外部变化、后台标签、轮询模式、真实 `subst` 虚拟盘插拔；61 步） | `powershell -File scripts/harness.ps1 live [--review-dir 目录]` | `artifacts/state/live.json`；`--review-dir` 额外输出 3 级审阅截图 |
-| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义、新建／重命名／剪贴板／拖放流程、缩略图、大图预览、系统缩略图；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`／`xfer`／`thumbs`／`preview`／`shell`） |
+| 交互脚本（单栏浏览流程、双栏独立标签流程、重启会话恢复流程、删除与回收站流程、右键菜单选择语义、新建／重命名／剪贴板／拖放流程、缩略图、大图预览、系统缩略图、云盘、系统入口设置与外部打开请求；重复 2 次核对一致） | `powershell -File scripts/harness.ps1 run` | `artifacts/state/interaction.json`（`steps` 含 `single`／`dual`／`restore`／`delete`／`context`／`xfer`／`thumbs`／`preview`／`shell`／`cloud`／`entry`） |
 | 右键菜单真实窗口自测（真实 Win32 输入、系统菜单、NanaZip 命令产物、GDI 量化；需交互式桌面，约 90 秒） | `powershell -File scripts/verify-menu.ps1`（已含在 `scripts/verify-harness.ps1`） | `artifacts/verify/menu/selftest.json`、`menu-trees.txt`、截图；详见 [shell-context-menu.md](shell-context-menu.md) |
 | 云盘无隐式下载（Issue #14）：`run` 里的“云盘”部分（模拟提供方：四种状态与提供方不可用的显示、缩略图／打开／复制／移动／拖出／删除的提示、同步客户端退出与恢复、侧栏云盘入口，17 步）与四个截图场景 `cloud-*` | `powershell -File scripts/harness.ps1 run`；真实环境只读核查 `target\debug\harness.exe cloud-real`（只输出统计，不含文件名）；受控实验 `target\debug\harness.exe cloud-lab --root=同步目录 --label=标签`（只动自己新建的测试文件夹） | `artifacts/state/interaction.json`；`artifacts/state/cloud-real.json`、`cloud-lab-<标签>.json`；说明见 [cloud-browsing.md](cloud-browsing.md) |
 | 搜索脚本（目录／全盘搜索、增量与取消、旧结果不混入、选择／打开／定位、过期结果、模拟增强后端的就绪与五种故障回退；45 步，搜索任务手动驱动，结果确定） | `powershell -File scripts/harness.ps1 search` | `artifacts/state/search.json` |
@@ -28,6 +28,7 @@
 | 窗口可见性（发布前必过，已含在 `scripts/verify.ps1`） | `powershell -File scripts/verify-capture.ps1 [-Software] [-Exe 其他exe]` | 退出码（0 通过、1 不可见、2 无法判断），不保存截图 |
 | 观测框架整体验证 | `powershell -File scripts/verify-harness.ps1` | 退出码 |
 | 会话恢复（真实程序 + 临时数据目录） | `powershell -File scripts/verify-session.ps1`（已含在 `scripts/verify.ps1`） | 退出码 |
+| 单实例与外部打开请求（真实程序 + 临时数据目录：转发、复用标签、失败答复、激活、explorer 风格参数、数据目录隔离、主实例无响应超时） | `powershell -File scripts/verify-instance.ps1`（已含在 `scripts/verify.ps1`） | 退出码；失败时各进程输出留在 `%TEMP%\sfm-instance-test\out` |
 | 真实回收站测试（看门狗：超时强杀并报告弹出的窗口标题，结束后核对回收站残留） | `powershell -File scripts/run-recycle-tests.ps1 [-Filter recycle] [-TimeoutSec 90]`；清扫历史残留加 `-Filter sweep_stale_fixtures -Ignored` | 退出码、回收站总数与夹具残留数 |
 
 `scripts/harness.ps1` 会先以 `--features harness` 构建 `harness` 程序（发布产物不含它，也不含调试信息），再转发参数。常用选项：`--size 1100x720`（默认，与产品初始窗口一致）、`--scales 1,1.5`、`--scenarios grid-selected,loading`、`--scenario loading-appear`、`--interval 16`、`--duration 600`、`--out 目录`。
@@ -133,6 +134,7 @@
 - **Issue #12（新建、重命名、传输）**：所有原有场景的基线重新 `bless`。变化只发生在工具栏：最左侧新增“新建”图标按钮（+），其后的排序、视图、删除、双栏、星标与搜索框因此整体右移，搜索框在空间不足时进一步收窄（150% 文字缩放下尤其明显）；`sort-menu` 的弹出位置随排序按钮右移，`thumb-cache-menu` 的弹出位置随“更多”按钮右移。内容区、侧栏、列表、网格与搜索面板像素未变（与合入 #10、#11 之后的 main 基线逐像素比较，工具栏以下区域的差异只有上述两个弹出菜单和 150% 文字缩放下搜索框下沿 3 像素）。同时新增 8 个场景基线（见“新增场景”）。
 
 - **Issue #13（图片大图预览与视频缩略图）**：只有 `thumbs-loading`（100%／150%）的基线重新 `bless`，变化只有一处：夹具里的 TIFF 单元由“类型图标”变为“加载中占位”，原因是 TIFF 现在走系统缩略图车道，harness 的 `hold_thumbs` 下该请求尚未执行（浅灰圆角占位 + 淡色图标）；其余原有基线逐像素未变（compare 一致）。新增 8 个预览场景基线（见“新增场景”）。
+- **Issue #17（系统入口接管）**：只有 `thumb-cache-menu`（100%／150%）的基线重新 `bless`：“更多”菜单在“清空缩略图缓存”之后多了一条分隔线和“设置…”。其余原有基线逐像素未变（compare 一致）。新增 6 个 `settings-*` 场景基线（见“新增场景”）。
 
 ## 动画逐帧采集
 
@@ -181,6 +183,7 @@
 - 缩略图场景（Issue #10，基线 100%／150%）：`thumbs-loading`（请求尚未执行的加载占位）、`thumbs-ready`（全部完成，含方向、透明、GIF 第一帧、扩展名不符、损坏与超大尺寸回退）、`thumbs-fallback`（慢文件超时回退）、`thumb-cache-menu`（“更多”菜单）。夹具是样例目录之外的 `%TEMP%\sfm-harness\缩略图样例`（`fixture::THUMB_FILES`，内容由 `thumbs::decode::samples` 确定性生成；不改变样例目录条目数）。harness 的缩略图使用手动调度器：`Ctx::pump` 同时执行缩略图请求（`hold_thumbs` 为真时不执行，用于截“加载中”）；文件名含“慢”的图片先超时，`Controller::finish_slow_thumbs` 迟到补图。`Scenario.thumb_cache` 为真时使用每次清空的持久缓存目录。交互脚本 `thumbs.rs`（12 步）覆盖加载中可选择与打开、换目录作废排队请求、结果内容、迟到补图、写盘、重启复用、修改／改名／删除失效、缓存菜单、清空与容量。
 - 新建、重命名与传输场景（Issue #12，基线 100%／150%，后端为临时目录后端、内存剪贴板）：`rename-edit`（F2 后名称变输入框，只选中不含扩展名的部分）、`rename-error`（改成已存在名称后输入框变红并提示）、`new-menu`（工具栏“新建”弹出的文件夹与模板菜单）、`new-folder-editing`（Ctrl+Shift+N 后新文件夹直接进入重命名）、`cut-state`（Ctrl+X 后条目变淡）、`paste-conflict`（粘贴遇同名：保留两者／跳过／取消三选项）、`paste-partial`（注入权限不足的部分成功汇报）、`drag-hint`（双栏拖动中途：目标文件夹高亮与跟随提示，不松手）。交互脚本见 `src/bin/harness/xfer.rs`；`Ctx` 提供内存剪贴板 `clip` 与拖出记录 `dragged_out`，真实 OLE 拖放不在无头环境运行。
 - 预览与系统缩略图场景（Issue #13，基线 100%／150%）：`preview-fit`（适应窗口）、`preview-one-to-one`（1:1，大图可滚动）、`preview-loading`（首次加载中）、`preview-failed`（损坏）、`preview-too-large`（过大）、`preview-gif-playing`（GIF 自动播放，固定在某一帧）、`preview-gif-first-frame`（GIF 第一帧，用户选择“默认第一帧”时的样子）、`preview-text-scale-150`。预览解码用 `Loader::Manual`，`Ctx::pump` 之外用 `pump_preview` 推进；GIF 由 Slint 计时器推进，harness 的模拟时钟确定地推进帧。`Opts.settings_file` 指向临时 `settings.json`，用于 `preview_gif_autoplay: false` 等设置。系统缩略图在 harness 里是确定性替身 `FakeShell`（文件头 `FAKEVID` → 256×144 图案；路径含“缓存命中”时仅缓存查询命中；记录每次调用的 `(路径, 是否仅缓存)`，供断言“云文件只走仅缓存”“缓存复用后不再提取”），**不依赖本机解码器**；真实 Shell 用 `video-compat`。交互脚本 `preview`（21 步）与 `shell`（4 步）见 `src/bin/harness/preview.rs`。
+- 设置面板与系统入口场景（Issue #17，基线 100%／150%，名称以 `settings-` 开头，环境见 `src/bin/harness/entry.rs` 的 `showcase_env`：内存注册表按本机同构的初始状态布置、虚构程序路径，**不碰真实注册表**）：`settings-off`（未接管）、`settings-on`（已接管）、`settings-conflict`（别的程序改了 `Directory\shell` 默认动词）、`settings-stale`（登记的是已不存在的旧位置）、`settings-unavailable`（没有数据目录）、`settings-confirm`（打开开关后的确认对话框，列出将被替换的 `Drive\shell` 默认值）。`Opts.entry` 注入 `EntryEnv`，默认为“不可用”。交互脚本 `entry`（`run` 的“系统入口”部分，21 步）用测试根 `HKCU\Software\slint-file-manager-test\<pid>-<纳秒>`（结束时整棵删除）走完：更多 → 设置…、确认与取消、启用、外部改动后的冲突与重新接管、旧位置的修复、关闭开关后与布置时逐值一致、启动自检的“以后再说／恢复原设置”，以及外部打开请求（新建与复用标签、打开文件并选中、`select`、不存在的路径、对话框已打开时改在状态栏、激活）。
 - 不要为尚不存在的界面预建抽象；界面出现后再在这些入口上扩展。
 
 ## 已知限制与排错

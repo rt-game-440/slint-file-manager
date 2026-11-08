@@ -248,7 +248,7 @@ fn ancestors(key: &str) -> Vec<String> {
 }
 
 /// 只读：记录计划涉及的每个值和键的原状。
-pub fn capture(store: &impl RegStore, plan: &[ValueSpec]) -> io::Result<Backup> {
+pub fn capture(store: &(impl RegStore + ?Sized), plan: &[ValueSpec]) -> io::Result<Backup> {
     let mut backup = Backup::default();
     let mut seen = BTreeSet::new();
     for s in plan {
@@ -270,7 +270,7 @@ pub fn capture(store: &impl RegStore, plan: &[ValueSpec]) -> io::Result<Backup> 
 /// 应用计划：先备份并交给 `persist` 持久化（失败则不写注册表），再按顺序写入；
 /// 任一写入失败时立即用备份回滚并返回 [`ApplyError`]。
 pub fn apply(
-    store: &mut impl RegStore,
+    store: &mut (impl RegStore + ?Sized),
     plan: &[ValueSpec],
     persist: impl FnOnce(&Backup) -> io::Result<()>,
 ) -> Result<Backup, ApplyError> {
@@ -278,6 +278,17 @@ pub fn apply(
         error,
         rollback: Ok(RestoreReport::default()),
     })?;
+    apply_prepared(store, plan, backup, persist)
+}
+
+/// 用调用方准备好的备份应用计划（修复、重新接管时沿用旧备份里的原值，见 `manage`）：
+/// 先交给 `persist` 持久化（失败则不写注册表），再按顺序写入；任一写入失败时按该备份回滚。
+pub fn apply_prepared(
+    store: &mut (impl RegStore + ?Sized),
+    plan: &[ValueSpec],
+    backup: Backup,
+    persist: impl FnOnce(&Backup) -> io::Result<()>,
+) -> Result<Backup, ApplyError> {
     if let Err(error) = persist(&backup) {
         return Err(ApplyError {
             error,
@@ -294,7 +305,7 @@ pub fn apply(
 }
 
 /// 按备份恢复并复核。
-pub fn restore(store: &mut impl RegStore, backup: &Backup) -> io::Result<RestoreReport> {
+pub fn restore(store: &mut (impl RegStore + ?Sized), backup: &Backup) -> io::Result<RestoreReport> {
     let mut report = RestoreReport::default();
     let mut conflicted = BTreeSet::new();
     for v in backup.values.iter().rev() {
@@ -328,7 +339,7 @@ pub fn restore(store: &mut impl RegStore, backup: &Backup) -> io::Result<Restore
 }
 
 /// 只读：计划当前是否生效。
-pub fn status(store: &impl RegStore, plan: &[ValueSpec]) -> io::Result<Status> {
+pub fn status(store: &(impl RegStore + ?Sized), plan: &[ValueSpec]) -> io::Result<Status> {
     let mut differ = Vec::new();
     for s in plan {
         if store.get(&s.key, &s.name)?.as_ref() != Some(&s.value) {
@@ -346,7 +357,10 @@ pub fn status(store: &impl RegStore, plan: &[ValueSpec]) -> io::Result<Status> {
 
 /// 应用前检查：计划会覆盖的“已有且不同”的值（例如别的文件管理器已经设置了默认动词）。
 /// 调用方应把这些项展示给用户确认，而不是静默覆盖。
-pub fn preflight(store: &impl RegStore, plan: &[ValueSpec]) -> io::Result<Vec<(String, RegValue)>> {
+pub fn preflight(
+    store: &(impl RegStore + ?Sized),
+    plan: &[ValueSpec],
+) -> io::Result<Vec<(String, RegValue)>> {
     let mut out = Vec::new();
     for s in plan {
         if let Some(cur) = store.get(&s.key, &s.name)?
@@ -542,7 +556,7 @@ impl RegStore for MemStore {
 /// - `Directory\shell` 键已存在但没有默认值，旁边有别的程序的动词（本机 Zed 的真实情况）；
 /// - `Drive\shell` 键已存在且默认值为 `none`（REG_SZ），另有一个 REG_EXPAND_SZ 值；
 /// - `CLSID\{52205fd8-...}` 完全不存在。
-pub fn seed_rehearsal(store: &mut impl RegStore) -> io::Result<()> {
+pub fn seed_rehearsal(store: &mut (impl RegStore + ?Sized)) -> io::Result<()> {
     store.set(
         "Directory\\shell\\Zed\\command",
         "",
@@ -559,7 +573,7 @@ pub fn seed_rehearsal(store: &mut impl RegStore) -> io::Result<()> {
 }
 
 /// 通用演练：布置 → 快照 → 应用 → 检查生效 → 恢复 → 与快照逐值比对。供内存实现与真实测试根共用。
-pub fn rehearse(store: &mut impl RegStore, exe: &Path) -> Result<(), String> {
+pub fn rehearse(store: &mut (impl RegStore + ?Sized), exe: &Path) -> Result<(), String> {
     let e = |x: io::Error| x.to_string();
     seed_rehearsal(store).map_err(e)?;
     let before = store.snapshot("").map_err(e)?;

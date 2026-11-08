@@ -1,4 +1,4 @@
-﻿# 生成可分发产物：dist/slint-file-manager-<版本>-win-x64.zip（含 exe、LICENSE）。
+﻿# 生成可分发产物：dist/slint-file-manager-<版本>-win-x64.zip（含 exe、LICENSE、system-entry.md）。
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 & (Join-Path $PSScriptRoot 'build.ps1')
@@ -11,6 +11,8 @@ if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item 'target\release\slint-file-manager.exe' $stage
 Copy-Item 'LICENSE' $stage
+# 系统入口接管的说明与不依赖本程序的手工恢复步骤（Issue #17）
+Copy-Item 'docs\system-entry.md' $stage
 $zip = Join-Path 'dist' "$name.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
 Compress-Archive -Path $stage -DestinationPath $zip
