@@ -1,0 +1,4675 @@
+{
+  "schema": 1,
+  "kind": "dialog-baseline",
+  "os": {
+    "family": "windows10",
+    "caption": "Microsoft Windows 10 专业工作站版",
+    "build": 19045,
+    "display_version": "22H2"
+  },
+  "host": {
+    "tool": "dialog-host",
+    "schema": 1
+  },
+  "placeholders": {
+    "{FIXTURE}": "测试夹具根目录（%TEMP%\\sfm-dialog-host\\...\\fixture）"
+  },
+  "cases": {
+    "ifd-open-single": {
+      "x64": {
+        "description": "打开单个：在初始目录输入文件名",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "打开单个：在初始目录输入文件名",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-initdir-sub": {
+      "x64": {
+        "description": "初始目录是子目录，返回子目录里的文件",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "inner.txt",
+              "path": "{FIXTURE}\\docs\\sub\\inner.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\sub\\inner.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "初始目录是子目录，返回子目录里的文件",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "inner.txt",
+              "path": "{FIXTURE}\\docs\\sub\\inner.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\sub\\inner.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-single-owner": {
+      "x64": {
+        "description": "带所有者窗口的打开单个",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "带所有者窗口的打开单个",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-multi": {
+      "x64": {
+        "description": "多选两个文件",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "beta.txt",
+              "path": "{FIXTURE}\\docs\\beta.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt", "{FIXTURE}\\docs\\beta.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "多选两个文件",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "beta.txt",
+              "path": "{FIXTURE}\\docs\\beta.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt", "{FIXTURE}\\docs\\beta.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-multi-one": {
+      "x64": {
+        "description": "多选模式只选一个文件（返回形态不同）",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "gamma.txt",
+              "path": "{FIXTURE}\\docs\\gamma.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\gamma.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "多选模式只选一个文件（返回形态不同）",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "gamma.txt",
+              "path": "{FIXTURE}\\docs\\gamma.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\gamma.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-multi-cjk": {
+      "x64": {
+        "description": "多选含中文文件名",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "报告.txt",
+              "path": "{FIXTURE}\\docs\\报告.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\报告.txt", "{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "多选含中文文件名",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "报告.txt",
+              "path": "{FIXTURE}\\docs\\报告.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\报告.txt", "{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-filter-initial": {
+      "x64": {
+        "description": "初始选中第 2 个过滤器（图片）",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "png",
+              "is_dir": false,
+              "name": "image.png",
+              "path": "{FIXTURE}\\docs\\image.png"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\image.png"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "初始选中第 2 个过滤器（图片）",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "png",
+              "is_dir": false,
+              "name": "image.png",
+              "path": "{FIXTURE}\\docs\\image.png"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\image.png"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-filter-switch": {
+      "x64": {
+        "description": "驱动切换到第 3 个过滤器（所有文件）",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "md",
+              "is_dir": false,
+              "name": "notes.md",
+              "path": "{FIXTURE}\\docs\\notes.md"
+            }
+          ],
+          "filter_index": 3,
+          "paths": ["{FIXTURE}\\docs\\notes.md"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "驱动切换到第 3 个过滤器（所有文件）",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "md",
+              "is_dir": false,
+              "name": "notes.md",
+              "path": "{FIXTURE}\\docs\\notes.md"
+            }
+          ],
+          "filter_index": 3,
+          "paths": ["{FIXTURE}\\docs\\notes.md"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-open-cancel": {
+      "x64": {
+        "description": "打开时点取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "打开时点取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-default-name": {
+      "x64": {
+        "description": "保存：默认文件名，直接确定",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "draft.txt",
+              "path": "{FIXTURE}\\docs\\draft.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\draft.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存：默认文件名，直接确定",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "draft.txt",
+              "path": "{FIXTURE}\\docs\\draft.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\draft.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-default-ext": {
+      "x64": {
+        "description": "保存：默认扩展名 txt，输入无扩展名的 report",
+        "request": {
+          "api": "ifd",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "report.txt",
+              "path": "{FIXTURE}\\docs\\report.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存：默认扩展名 txt，输入无扩展名的 report",
+        "request": {
+          "api": "ifd",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "report.txt",
+              "path": "{FIXTURE}\\docs\\report.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-typed-ext": {
+      "x64": {
+        "description": "保存：默认扩展名 txt，输入 report.md（保留输入的扩展名）",
+        "request": {
+          "api": "ifd",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "md",
+              "is_dir": false,
+              "name": "report.md",
+              "path": "{FIXTURE}\\docs\\report.md"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.md"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存：默认扩展名 txt，输入 report.md（保留输入的扩展名）",
+        "request": {
+          "api": "ifd",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "md",
+              "is_dir": false,
+              "name": "report.md",
+              "path": "{FIXTURE}\\docs\\report.md"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.md"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-no-default-ext": {
+      "x64": {
+        "description": "保存：不设默认扩展名，输入 data",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存：不设默认扩展名，输入 data",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-filter-initial": {
+      "x64": {
+        "description": "保存：初始选中第 2 个过滤器（图片），输入 data",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存：初始选中第 2 个过滤器（图片），输入 data",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-overwrite-yes": {
+      "x64": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选是",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "yes"
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选是",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "yes"
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-overwrite-no": {
+      "x64": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选否后取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "no"
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选否后取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "no"
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-overwrite-off": {
+      "x64": {
+        "description": "保存已存在的 existing.txt：关闭覆盖确认，不应出现确认",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": false,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存已存在的 existing.txt：关闭覆盖确认，不应出现确认",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": false,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-save-cancel": {
+      "x64": {
+        "description": "保存时点取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "保存时点取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "gofn-open-single": {
+      "x64": {
+        "description": "打开单个：在初始目录输入文件名",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\alpha.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "alpha.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "打开单个：在初始目录输入文件名",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\alpha.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "alpha.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-initdir-sub": {
+      "x64": {
+        "description": "初始目录是子目录，返回子目录里的文件",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\sub\\inner.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "inner.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "inner.txt",
+              "path": "{FIXTURE}\\docs\\sub\\inner.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\sub\\inner.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "初始目录是子目录，返回子目录里的文件",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\sub\\inner.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "inner.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "inner.txt",
+              "path": "{FIXTURE}\\docs\\sub\\inner.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\sub\\inner.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-single-owner": {
+      "x64": {
+        "description": "带所有者窗口的打开单个",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\alpha.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "alpha.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "带所有者窗口的打开单个",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\alpha.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "alpha.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-multi": {
+      "x64": {
+        "description": "多选两个文件",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "dir+names",
+            "buffer_segments": ["{FIXTURE}\\docs", "alpha.txt", "beta.txt"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00081A0C",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "alpha.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "beta.txt",
+              "path": "{FIXTURE}\\docs\\beta.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt", "{FIXTURE}\\docs\\beta.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "多选两个文件",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "dir+names",
+            "buffer_segments": ["{FIXTURE}\\docs", "alpha.txt", "beta.txt"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00081A0C",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "alpha.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "beta.txt",
+              "path": "{FIXTURE}\\docs\\beta.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\alpha.txt", "{FIXTURE}\\docs\\beta.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-multi-one": {
+      "x64": {
+        "description": "多选模式只选一个文件（返回形态不同）",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\gamma.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00081A0C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "gamma.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "gamma.txt",
+              "path": "{FIXTURE}\\docs\\gamma.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\gamma.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "多选模式只选一个文件（返回形态不同）",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\gamma.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00081A0C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "gamma.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "gamma.txt",
+              "path": "{FIXTURE}\\docs\\gamma.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\gamma.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-multi-cjk": {
+      "x64": {
+        "description": "多选含中文文件名",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "dir+names",
+            "buffer_segments": ["{FIXTURE}\\docs", "报告.txt", "alpha.txt"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00081A0C",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "报告.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "报告.txt",
+              "path": "{FIXTURE}\\docs\\报告.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\报告.txt", "{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "多选含中文文件名",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-multi",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "dir+names",
+            "buffer_segments": ["{FIXTURE}\\docs", "报告.txt", "alpha.txt"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00081A0C",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "报告.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "报告.txt",
+              "path": "{FIXTURE}\\docs\\报告.txt"
+            },
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "alpha.txt",
+              "path": "{FIXTURE}\\docs\\alpha.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\报告.txt", "{FIXTURE}\\docs\\alpha.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-filter-initial": {
+      "x64": {
+        "description": "初始选中第 2 个过滤器（图片）",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\image.png"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "png",
+            "text_at_file_offset": "image.png"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "png",
+              "is_dir": false,
+              "name": "image.png",
+              "path": "{FIXTURE}\\docs\\image.png"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\image.png"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "初始选中第 2 个过滤器（图片）",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\image.png"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "png",
+            "text_at_file_offset": "image.png"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "png",
+              "is_dir": false,
+              "name": "image.png",
+              "path": "{FIXTURE}\\docs\\image.png"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\image.png"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-filter-switch": {
+      "x64": {
+        "description": "驱动切换到第 3 个过滤器（所有文件）",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\notes.md"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "md",
+            "text_at_file_offset": "notes.md"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "md",
+              "is_dir": false,
+              "name": "notes.md",
+              "path": "{FIXTURE}\\docs\\notes.md"
+            }
+          ],
+          "filter_index": 3,
+          "paths": ["{FIXTURE}\\docs\\notes.md"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "驱动切换到第 3 个过滤器（所有文件）",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\notes.md"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008180C",
+            "text_at_extension_offset": "md",
+            "text_at_file_offset": "notes.md"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "md",
+              "is_dir": false,
+              "name": "notes.md",
+              "path": "{FIXTURE}\\docs\\notes.md"
+            }
+          ],
+          "filter_index": 3,
+          "paths": ["{FIXTURE}\\docs\\notes.md"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-open-cancel": {
+      "x64": {
+        "description": "打开时点取消",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "comdlg_error": 0
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "FALSE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "打开时点取消",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "open-single",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "comdlg_error": 0
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "FALSE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-default-name": {
+      "x64": {
+        "description": "保存：默认文件名，直接确定",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\draft.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "draft.txt"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "draft.txt",
+              "path": "{FIXTURE}\\docs\\draft.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\draft.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存：默认文件名，直接确定",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\draft.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "draft.txt"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "draft.txt",
+              "path": "{FIXTURE}\\docs\\draft.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\draft.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-default-ext": {
+      "x64": {
+        "description": "保存：默认扩展名 txt，输入无扩展名的 report",
+        "request": {
+          "api": "gofn",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\report.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "report.txt"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "report.txt",
+              "path": "{FIXTURE}\\docs\\report.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存：默认扩展名 txt，输入无扩展名的 report",
+        "request": {
+          "api": "gofn",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\report.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "report.txt"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "report.txt",
+              "path": "{FIXTURE}\\docs\\report.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-typed-ext": {
+      "x64": {
+        "description": "保存：默认扩展名 txt，输入 report.md（保留输入的扩展名）",
+        "request": {
+          "api": "gofn",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\report.md"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00080C0E",
+            "text_at_extension_offset": "md",
+            "text_at_file_offset": "report.md"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "md",
+              "is_dir": false,
+              "name": "report.md",
+              "path": "{FIXTURE}\\docs\\report.md"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.md"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存：默认扩展名 txt，输入 report.md（保留输入的扩展名）",
+        "request": {
+          "api": "gofn",
+          "default_ext": "txt",
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\report.md"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x00080C0E",
+            "text_at_extension_offset": "md",
+            "text_at_file_offset": "report.md"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "md",
+              "is_dir": false,
+              "name": "report.md",
+              "path": "{FIXTURE}\\docs\\report.md"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\report.md"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-no-default-ext": {
+      "x64": {
+        "description": "保存：不设默认扩展名，输入 data",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\data"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "data"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存：不设默认扩展名，输入 data",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\data"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "data"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-filter-initial": {
+      "x64": {
+        "description": "保存：初始选中第 2 个过滤器（图片），输入 data",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\data"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "data"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存：初始选中第 2 个过滤器（图片），输入 data",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": 2,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\data"],
+            "extension_offset_nonzero": false,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": null,
+            "text_at_file_offset": "data"
+          },
+          "files": [
+            {
+              "exists": false,
+              "extension": "",
+              "is_dir": false,
+              "name": "data",
+              "path": "{FIXTURE}\\docs\\data"
+            }
+          ],
+          "filter_index": 2,
+          "paths": ["{FIXTURE}\\docs\\data"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-overwrite-yes": {
+      "x64": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选是",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "yes"
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\existing.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "existing.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选是",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "yes"
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\existing.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080E",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "existing.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-overwrite-no": {
+      "x64": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选否后取消",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "no"
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "comdlg_error": 0
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "FALSE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存已存在的 existing.txt：出现覆盖确认，选否后取消",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": true,
+          "overwrite_confirm_answer": "no"
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "comdlg_error": 0
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "FALSE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-overwrite-off": {
+      "x64": {
+        "description": "保存已存在的 existing.txt：关闭覆盖确认，不应出现确认",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": false,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\existing.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "existing.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存已存在的 existing.txt：关闭覆盖确认，不应出现确认",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "existing.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": false,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "buffer_layout": "single-path",
+            "buffer_segments": ["{FIXTURE}\\docs\\existing.txt"],
+            "extension_offset_nonzero": true,
+            "file_offset_nonzero": true,
+            "flags_out": "0x0008080C",
+            "text_at_extension_offset": "txt",
+            "text_at_file_offset": "existing.txt"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "txt",
+              "is_dir": false,
+              "name": "existing.txt",
+              "path": "{FIXTURE}\\docs\\existing.txt"
+            }
+          ],
+          "filter_index": 1,
+          "paths": ["{FIXTURE}\\docs\\existing.txt"],
+          "return_code": "TRUE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "gofn-save-cancel": {
+      "x64": {
+        "description": "保存时点取消",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "comdlg_error": 0
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "FALSE",
+          "return_kind": "BOOL"
+        }
+      },
+      "x86": {
+        "description": "保存时点取消",
+        "request": {
+          "api": "gofn",
+          "default_ext": null,
+          "default_name": "draft.txt",
+          "filter_index": null,
+          "filters": [
+            {
+              "name": "文本文件",
+              "patterns": "*.txt;*.md"
+            },
+            {
+              "name": "图片",
+              "patterns": "*.png;*.jpg"
+            },
+            {
+              "name": "所有文件",
+              "patterns": "*.*"
+            }
+          ],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "save",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "comdlg_error": 0
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "FALSE",
+          "return_kind": "BOOL"
+        }
+      }
+    },
+    "ifd-folder": {
+      "x64": {
+        "description": "选择文件夹（FOS_PICKFOLDERS）：输入子目录名",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "选择文件夹（FOS_PICKFOLDERS）：输入子目录名",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-folder-initdir": {
+      "x64": {
+        "description": "选择文件夹：初始目录是 sub，直接确定",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "选择文件夹：初始目录是 sub，直接确定",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-folder-owner": {
+      "x64": {
+        "description": "带所有者窗口的选择文件夹",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "带所有者窗口的选择文件夹",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {},
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "0x00000000",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "ifd-folder-cancel": {
+      "x64": {
+        "description": "选择文件夹时点取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      },
+      "x86": {
+        "description": "选择文件夹时点取消",
+        "request": {
+          "api": "ifd",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {},
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "0x800704C7",
+          "return_kind": "HRESULT"
+        }
+      }
+    },
+    "sbf-folder-new": {
+      "x64": {
+        "description": "SHBrowseForFolder 新样式：在编辑框输入完整路径",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000051"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      },
+      "x86": {
+        "description": "SHBrowseForFolder 新样式：在编辑框输入完整路径",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000051"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      }
+    },
+    "sbf-folder-new-initdir": {
+      "x64": {
+        "description": "SHBrowseForFolder 新样式：回调预选 sub，直接确定",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000051"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      },
+      "x86": {
+        "description": "SHBrowseForFolder 新样式：回调预选 sub，直接确定",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000051"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      }
+    },
+    "sbf-folder-legacy-initdir": {
+      "x64": {
+        "description": "SHBrowseForFolder 旧样式（只有目录树）：回调预选 sub，直接确定",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "legacy",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000001"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      },
+      "x86": {
+        "description": "SHBrowseForFolder 旧样式（只有目录树）：回调预选 sub，直接确定",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs\\sub",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "legacy",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000001"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      }
+    },
+    "sbf-folder-owner": {
+      "x64": {
+        "description": "带所有者窗口的 SHBrowseForFolder",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000051"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      },
+      "x86": {
+        "description": "带所有者窗口的 SHBrowseForFolder",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "window",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": false,
+          "error": null,
+          "extras": {
+            "display_name": "sub",
+            "flags": "0x00000051"
+          },
+          "files": [
+            {
+              "exists": true,
+              "extension": "",
+              "is_dir": true,
+              "name": "sub",
+              "path": "{FIXTURE}\\docs\\sub"
+            }
+          ],
+          "filter_index": null,
+          "paths": ["{FIXTURE}\\docs\\sub"],
+          "return_code": "pidl",
+          "return_kind": "PIDL"
+        }
+      }
+    },
+    "sbf-folder-cancel": {
+      "x64": {
+        "description": "SHBrowseForFolder 取消",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "display_name": "",
+            "flags": "0x00000051"
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "null",
+          "return_kind": "PIDL"
+        }
+      },
+      "x86": {
+        "description": "SHBrowseForFolder 取消",
+        "request": {
+          "api": "sbf",
+          "default_ext": null,
+          "default_name": null,
+          "filter_index": null,
+          "filters": [],
+          "init_dir": "{FIXTURE}\\docs",
+          "overwrite_prompt": true,
+          "owner": "none",
+          "sbf_style": "new",
+          "scenario": "pick-folder",
+          "title": null
+        },
+        "observed": {
+          "overwrite_confirm_shown": false,
+          "overwrite_confirm_answer": null
+        },
+        "result": {
+          "cancelled": true,
+          "error": null,
+          "extras": {
+            "display_name": "",
+            "flags": "0x00000051"
+          },
+          "files": [],
+          "filter_index": null,
+          "paths": [],
+          "return_code": "null",
+          "return_kind": "PIDL"
+        }
+      }
+    }
+  }
+}
